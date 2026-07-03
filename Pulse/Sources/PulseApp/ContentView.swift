@@ -16,8 +16,19 @@ final class AppModel: ObservableObject {
     @Published var snapshots: [DailySnapshot] = []
     @Published var lastRefresh: Date? = nil
     @Published var refreshing = false
+    /// Progressive-load progress: (quotes landed, total symbols). Large
+    /// portfolios take a while — the UI must fill as data arrives, never
+    /// sit on zeros looking dead.
+    @Published var quoteProgress: (done: Int, total: Int)? = nil
     /// Minute tick — re-evaluates the auto theme even when nothing else moves.
     @Published var tick = Date()
+    /// Symbol whose outlook sheet is open (tap a holding to set).
+    @Published var outlookTarget: OutlookTarget? = nil
+
+    struct OutlookTarget: Identifiable {
+        let symbol: String
+        var id: String { symbol }
+    }
 
     let config = AppConfig.load()
     private var timer: Timer?
@@ -47,14 +58,31 @@ final class AppModel: ObservableObject {
         refreshing = true
         let callUnderlyings = portfolio.calls.map(\.underlying)
         Task {
-            async let stocks = QuoteService.fetchAll(symbols: symbols)
-            async let chains = OptionsService.fetchAll(underlyings: callUnderlyings)
-            let (q, oq) = await (stocks, chains)
+            async let chainsTask = OptionsService.fetchAll(underlyings: callUnderlyings)
+            // Chunked fetch, published as each chunk lands: a 434-symbol
+            // portfolio fills the UI within seconds instead of sitting on
+            // zeros for a minute.
+            let all = Array(Set(symbols))
+            var merged: [String: Quote] = [:]
+            let chunkSize = 40
+            for start in stride(from: 0, to: all.count, by: chunkSize) {
+                let chunk = Array(all[start..<min(start + chunkSize, all.count)])
+                let part = await QuoteService.fetchAll(symbols: chunk)
+                merged.merge(part) { _, new in new }
+                let progress = (done: merged.count, total: all.count)
+                let snapshotSoFar = merged
+                await MainActor.run {
+                    self.quotes = snapshotSoFar
+                    self.quoteProgress = start + chunkSize < all.count ? progress : nil
+                }
+            }
+            let oq = await chainsTask
+            let q = merged
             await MainActor.run {
-                self.quotes = q
                 self.optionQuotes = oq
                 self.lastRefresh = Date()
                 self.refreshing = false
+                self.quoteProgress = nil
                 self.recordSnapshot()
                 self.recomputePaperReviews()
             }
@@ -288,6 +316,9 @@ struct ContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(isDark ? .dark : .light)
         .frame(minWidth: 900, minHeight: 640)
+        .sheet(item: $model.outlookTarget) { target in
+            OutlookSheet(model: model, symbol: target.symbol)
+        }
         .onAppear { model.start() }
     }
 
@@ -297,7 +328,10 @@ struct ContentView: View {
         return HStack {
             Text("portfolio.json · quotes: Yahoo (delayed) · options: CBOE delayed · sentiment: VIX/alternative.me/Finnhub")
             Spacer()
-            if quoted < holdingSymbols.count {
+            if let p = model.quoteProgress {
+                Text("loading quotes \(p.done)/\(p.total)…")
+                    .foregroundStyle(.secondary)
+            } else if quoted < holdingSymbols.count {
                 Text("⚠ quotes \(quoted)/\(holdingSymbols.count) — unquoted positions count as $0")
                     .foregroundStyle(.orange)
             }
@@ -519,7 +553,7 @@ private struct HoldingsCard: View {
     @ObservedObject var model: AppModel
     @State private var importStatus = ""
     var body: some View {
-        Card(title: "HOLDINGS", trailing: "30-day trend") {
+        Card(title: "HOLDINGS", trailing: "tap a symbol for its outlook · 30-day trend") {
             Grid(alignment: .trailing, horizontalSpacing: 16, verticalSpacing: 10) {
                 GridRow {
                     head("SYMBOL", leading: true); head(""); head("QTY"); head("PRICE")
@@ -530,9 +564,16 @@ private struct HoldingsCard: View {
                     let value = model.holdingValue(h)
                     let pl = value - h.costBasis * h.quantity
                     GridRow {
-                        Text(h.symbol)
-                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                            .gridColumnAlignment(.leading)
+                        Button {
+                            model.outlookTarget = AppModel.OutlookTarget(symbol: h.symbol)
+                        } label: {
+                            Text(h.symbol)
+                                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                .underline(false)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Outlook for \(h.symbol) — sourced signals, not a forecast")
+                        .gridColumnAlignment(.leading)
                         Sparkline(closes: q?.closes ?? [])
                             .frame(width: 72, height: 20)
                         Text(num(h.quantity)).cell()

@@ -4,6 +4,6 @@ import Foundation
 /// from this file so the app bundle can never drift from the code again.
 public enum PulseInfo {
     public static let name = "Pulse"
-    public static let version = "0.7.2"
+    public static let version = "0.7.3"
     public static let tagline = "private, on-device portfolio tracker"
 }

@@ -44,7 +44,7 @@ codesign --force --deep -s - "$APP"
 if [[ "${1:-}" == "--install" ]]; then
   echo "[4/4] Installing to /Applications..."
   rm -rf /Applications/Pulse.app
-  cp -R "$APP" /Applications/Pulse.app
+  ditto "$APP" /Applications/Pulse.app   # ditto preserves signing metadata
   echo "Installed: /Applications/Pulse.app"
 else
   echo "[4/4] Skipping install (pass --install to copy to /Applications)"
