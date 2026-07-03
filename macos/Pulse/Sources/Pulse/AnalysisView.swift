@@ -105,11 +105,14 @@ struct AnalysisCard: View {
             HStack(spacing: 12) {
                 dropZone
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Drop or paste a screenshot of stocks — a chart, your broker page, a watchlist.")
+                    Text("Scan the screen (⇧⌘S — drag over stocks in your browser), or drop/paste a screenshot.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                     Text("OCR runs on this Mac (Vision). Analysis runs on your local model, grounded in live index + portfolio data. Nothing leaves the machine.")
                         .font(.system(size: 10)).foregroundStyle(.tertiary)
                     HStack(spacing: 8) {
+                        Button("Scan screen") { scanScreen() }
+                            .keyboardShortcut("s", modifiers: [.command, .shift])
+                            .disabled(model.running)
                         Button("Paste") { pasteImage() }
                         Button(model.running ? "Analyzing…" : "Analyze") { model.run(portfolio: app) }
                             .keyboardShortcut(.return, modifiers: .command)
@@ -185,5 +188,32 @@ struct AnalysisCard: View {
 
     private func pasteImage() {
         if let img = NSImage(pasteboard: .general) { model.image = img }
+    }
+
+    /// Scan the screen directly: the system's interactive region selector
+    /// (crosshair — drag over the stocks in your browser), then the captured
+    /// region flows straight into OCR → analysis. First use may require
+    /// granting Pulse Screen Recording permission (System Settings → Privacy).
+    private func scanScreen() {
+        let path = NSTemporaryDirectory() + "pulse-scan-\(UUID().uuidString).png"
+        model.status = "drag a region over your stocks (Esc to cancel)…"
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        proc.arguments = ["-i", "-x", path] // interactive region select, silent
+        Task.detached {
+            try? proc.run()
+            proc.waitUntilExit()
+            let data = try? Data(contentsOf: URL(fileURLWithPath: path))
+            try? FileManager.default.removeItem(atPath: path)
+            await MainActor.run {
+                if let data, let img = NSImage(data: data) {
+                    model.image = img
+                    model.status = ""
+                    model.run(portfolio: app) // scan → read, no extra click
+                } else {
+                    model.status = "scan cancelled — or grant Pulse Screen Recording in System Settings → Privacy & Security"
+                }
+            }
+        }
     }
 }
