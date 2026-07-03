@@ -1,0 +1,284 @@
+import Foundation
+import PulseKit
+
+// pulse-tui — the same private tracker, rendered in a terminal so Pulse runs
+// on Linux as well as macOS. Everything stays on-device: portfolio.json +
+// config.json in ~/Documents/stock-tracker, quotes fetched directly, LLM
+// analysis (--analyze) via the local Ollama endpoint.
+//
+//   pulse-tui                 render the dashboard once
+//   pulse-tui --watch         re-render every 60 s
+//   pulse-tui --analyze       dashboard + local-LLM read on the numbers
+//   pulse-tui --import <csv>  merge a broker CSV into portfolio.json
+//   pulse-tui --no-color      plain output
+
+let args = CommandLine.arguments.dropFirst()
+if args.contains("--help") || args.contains("-h") {
+    print("""
+    pulse-tui — private portfolio dashboard (macOS + Linux, on-device)
+      --watch          refresh every 60s
+      --analyze        add a local-LLM (Ollama) read, grounded in live data
+      --import <csv>   merge broker CSV (symbol/quantity/cost[/date]) into portfolio.json
+      --no-color       disable ANSI colors
+    """)
+    exit(0)
+}
+
+let useColor = !args.contains("--no-color") && ProcessInfo.processInfo.environment["NO_COLOR"] == nil
+let watch = args.contains("--watch")
+let analyze = args.contains("--analyze")
+
+// Theme follows the clock here too: brighter accents through the day, dimmer
+// framing at night. Content colors (gain green / loss red) never change.
+let isNight = ThemeMode.auto.isDark()
+
+enum Ansi {
+    static var on = true
+    static func wrap(_ code: String, _ s: String) -> String { on ? "\u{1B}[\(code)m\(s)\u{1B}[0m" : s }
+    static func bold(_ s: String) -> String { wrap("1", s) }
+    static func dim(_ s: String) -> String { wrap("2", s) }
+    static func green(_ s: String) -> String { wrap("32", s) }
+    static func red(_ s: String) -> String { wrap("31", s) }
+    static func yellow(_ s: String) -> String { wrap("33", s) }
+    static func cyan(_ s: String) -> String { wrap("36", s) }
+    static func header(_ s: String) -> String { isNight ? wrap("34;1", s) : wrap("36;1", s) }
+}
+Ansi.on = useColor
+
+func signed(_ v: Double, _ fmt: String = "%+.2f%%") -> String {
+    let s = String(format: fmt, v)
+    return v >= 0 ? Ansi.green(s) : Ansi.red(s)
+}
+
+func spark(_ closes: [Double], width: Int = 24) -> String {
+    guard closes.count >= 2, let lo = closes.min(), let hi = closes.max(), hi > lo else {
+        return String(repeating: "·", count: width)
+    }
+    let blocks = Array("▁▂▃▄▅▆▇█")
+    let n = min(width, closes.count)
+    let stride = Double(closes.count - 1) / Double(max(1, n - 1))
+    var out = ""
+    for i in 0..<n {
+        let v = closes[Int((Double(i) * stride).rounded())]
+        let idx = Int((v - lo) / (hi - lo) * Double(blocks.count - 1))
+        out.append(blocks[idx])
+    }
+    let up = closes.last! >= closes.first!
+    return up ? Ansi.green(out) : Ansi.red(out)
+}
+
+func pad(_ s: String, _ w: Int, right: Bool = false) -> String {
+    // ANSI escapes don't take up columns — pad on visible length.
+    let visible = s.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression).count
+    let fill = String(repeating: " ", count: max(0, w - visible))
+    return right ? fill + s : s + fill
+}
+
+// --import: one-shot CSV merge, then continue to the dashboard.
+if let i = args.firstIndex(of: "--import") {
+    let rest = args[args.index(after: i)...]
+    guard let path = rest.first else {
+        print("usage: pulse-tui --import <file.csv>"); exit(1)
+    }
+    do {
+        let result = try CsvImporter.importFile(at: URL(fileURLWithPath: path))
+        print("imported \(result.imported.count) positions (\(result.skippedRows) rows skipped) → portfolio.json")
+    } catch {
+        print("import failed: \(error.localizedDescription)"); exit(1)
+    }
+}
+
+let config = AppConfig.load()
+
+@MainActor
+func render() async {
+    let portfolio = Portfolio.load()
+    guard !(portfolio.holdings.isEmpty && portfolio.calls.isEmpty) else {
+        print("portfolio.json is empty — add holdings at \(Portfolio.fileURL.path)")
+        return
+    }
+    let symbols = portfolio.holdings.map(\.symbol) + portfolio.calls.map(\.underlying)
+
+    async let quotesTask = QuoteService.fetchAll(symbols: symbols)
+    async let chainsTask = OptionsService.fetchAll(underlyings: portfolio.calls.map(\.underlying))
+    async let sentimentTask = SentimentService.fetch(finnhubKey: config.finnhubApiKey)
+    let quotes = await quotesTask
+    let chains = await chainsTask
+    let sentiment = await sentimentTask
+    let timelines = await TimelineService.timelines(for: portfolio.holdings, quotes: quotes)
+
+    func callValue(_ c: CallPosition) -> Double? {
+        if let oq = chains[OptionsService.occSymbol(for: c)], oq.mark > 0 {
+            return oq.mark * 100 * Double(c.contracts)
+        }
+        return (quotes[c.underlying]?.price).map { c.intrinsic(at: $0) }
+    }
+
+    let holdingsValue = portfolio.holdings.reduce(0.0) { $0 + (quotes[$1.symbol]?.price ?? 0) * $1.quantity }
+    let callsValue = portfolio.calls.reduce(0.0) { $0 + (callValue($1) ?? 0) }
+    let totalValue = holdingsValue + callsValue
+    let totalCost = portfolio.holdings.reduce(0.0) { $0 + $1.costBasis * $1.quantity }
+        + portfolio.calls.reduce(0.0) { $0 + $1.premiumPaid }
+    let dayPL = portfolio.holdings.reduce(0.0) { acc, h in
+        acc + (quotes[h.symbol].map { $0.dayChange * h.quantity } ?? 0)
+    }
+    let allTime = totalValue - totalCost
+    let allTimePct = totalCost > 0 ? allTime / totalCost * 100 : 0
+
+    var out: [String] = []
+    let stamp = Date().formatted(date: .abbreviated, time: .shortened)
+    out.append(Ansi.header("PULSE") + Ansi.dim("  \(stamp) · on-device · quotes delayed"))
+    out.append("\(Ansi.bold(usd(totalValue)))  today \(signed(dayPL, "%+.0f"))\(Ansi.dim(" (holdings)"))  all-time \(signed(allTime, "%+.0f")) \(signed(allTimePct, "(%+.1f%%)"))")
+    out.append("")
+
+    // Global sentiment — sourced numbers only.
+    out.append(Ansi.header("GLOBAL SENTIMENT") + Ansi.dim("  " + sentiment.summary))
+    if !sentiment.indices.isEmpty {
+        out.append("  " + sentiment.indices.map { "\(Ansi.dim($0.name)) \(signed($0.dayPct, "%+.1f%%"))" }
+            .joined(separator: "   "))
+    }
+    for h in sentiment.headlines.prefix(4) {
+        out.append("  " + Ansi.dim("· \(h.title)  [\(h.source)]"))
+    }
+    if sentiment.headlines.isEmpty && config.finnhubApiKey == nil {
+        out.append("  " + Ansi.dim("(add finnhubApiKey to config.json for headlines)"))
+    }
+    out.append("")
+
+    // Holdings with invested-date timelines.
+    out.append(Ansi.header("HOLDINGS") + Ansi.dim("  ~date = estimated from cost basis"))
+    out.append(Ansi.dim(pad("SYMBOL", 9) + pad("QTY", 8, right: true) + pad("PRICE", 11, right: true)
+        + pad("DAY", 9, right: true) + pad("VALUE", 11, right: true) + pad("P/L", 10, right: true)
+        + "  " + pad("INVESTED", 12) + pad("HELD", 6) + pad("ANN.", 10, right: true) + "  SINCE BUY"))
+    for h in portfolio.holdings {
+        let q = quotes[h.symbol]
+        let value = (q?.price ?? 0) * h.quantity
+        let pl = value - h.costBasis * h.quantity
+        let t = timelines[h.symbol]
+        var line = pad(Ansi.bold(h.symbol), 9)
+        line += pad(num(h.quantity), 8, right: true)
+        line += pad(q.map { usd($0.price) } ?? "…", 11, right: true)
+        line += pad(q.map { signed($0.dayChangePct) } ?? "—", 9, right: true)
+        line += pad(q != nil ? usd(value) : "—", 11, right: true)
+        line += pad(q != nil ? signed(pl, "%+.0f") : "—", 10, right: true)
+        line += "  "
+        line += pad(t.map { $0.acquiredLabel } ?? "—", 12)
+        line += pad(t.map { $0.heldLabel } ?? "—", 6)
+        line += pad(t?.annualizedPct.map { signed($0, "%+.1f%%/y") } ?? Ansi.dim("—"), 10, right: true)
+        line += "  " + spark(t?.closesSince ?? q?.closes ?? [])
+        out.append(line)
+    }
+    out.append("")
+
+    if !portfolio.calls.isEmpty {
+        out.append(Ansi.header("CALLS") + Ansi.dim("  CBOE delayed · mark = bid/ask mid"))
+        for c in portfolio.calls {
+            let market = callValue(c)
+            let pl = market.map { $0 - c.premiumPaid }
+            var line = pad(Ansi.bold("\(c.underlying) \(Int(c.strike))C ×\(c.contracts)"), 20)
+            line += pad("exp \(c.expiry)", 16)
+            line += pad(c.daysToExpiry.map { "\($0)d" } ?? "—", 6, right: true)
+            line += pad(market.map(usd) ?? "—", 11, right: true)
+            line += pad(pl.map { signed($0, "%+.0f") } ?? "—", 10, right: true)
+            out.append(line)
+        }
+        out.append("")
+    }
+
+    // Deterministic right/wrong flags with their numbers.
+    var flags: [(Bool, String)] = []
+    var positions: [(String, Double, Double)] = [] // label, plPct, value
+    for h in portfolio.holdings {
+        let cost = h.costBasis * h.quantity
+        guard cost > 0, let q = quotes[h.symbol] else { continue }
+        let v = q.price * h.quantity
+        positions.append((h.symbol, (v - cost) / cost * 100, v))
+    }
+    for c in portfolio.calls {
+        guard c.premiumPaid > 0, let v = callValue(c) else { continue }
+        positions.append(("\(c.underlying) \(Int(c.strike))C", (v - c.premiumPaid) / c.premiumPaid * 100, v))
+    }
+    if !positions.isEmpty {
+        let winners = positions.filter { $0.1 >= 0 }.count
+        flags.append((winners * 2 >= positions.count, "win rate \(winners)/\(positions.count) positions in profit"))
+        let totalPos = positions.reduce(0.0) { $0 + $1.2 }
+        if let top = positions.max(by: { $0.2 < $1.2 }), totalPos > 0 {
+            let p = top.2 / totalPos * 100
+            flags.append((p <= 40, "concentration: \(top.0) is \(Int(p))% of the portfolio"))
+        }
+    }
+    for c in portfolio.calls {
+        if let dte = c.daysToExpiry, dte < 14 {
+            flags.append((false, "\(c.underlying) \(Int(c.strike))C expires in \(dte)d — theta decay is steepest now"))
+        }
+    }
+    for h in portfolio.holdings {
+        guard let t = timelines[h.symbol], t.holdingDays >= 180,
+              let ann = t.annualizedPct, let bench = t.benchmarkPct else { continue }
+        let benchAnn = (pow(1 + bench / 100, 365.25 / Double(t.holdingDays)) - 1) * 100
+        if ann >= benchAnn + 5 {
+            flags.append((true, "\(h.symbol) held \(t.heldLabel): \(String(format: "%+.1f", ann))%/y vs S&P \(String(format: "%+.1f", benchAnn))%/y — beating the index"))
+        } else if ann <= benchAnn - 5 {
+            flags.append((false, "\(h.symbol) held \(t.heldLabel): \(String(format: "%+.1f", ann))%/y vs S&P \(String(format: "%+.1f", benchAnn))%/y — lagging the index"))
+        }
+    }
+    if !flags.isEmpty {
+        out.append(Ansi.header("RIGHT / WRONG"))
+        for (ok, text) in flags {
+            out.append("  " + (ok ? Ansi.green("✓") : Ansi.yellow("⚠")) + " " + text)
+        }
+        out.append("")
+    }
+
+    out.append(Ansi.dim("sources: Yahoo (delayed) · CBOE delayed · alternative.me · Finnhub — data stays on this machine"))
+    print(out.joined(separator: "\n"))
+
+    if analyze {
+        print("")
+        print(Ansi.header("ANALYZE") + Ansi.dim("  local model via \(config.llmEndpoint ?? "http://localhost:11434")"))
+        let timelineLines = portfolio.holdings.compactMap { h -> String? in
+            guard let t = timelines[h.symbol] else { return nil }
+            return "\(h.symbol): invested \(t.acquiredLabel)\(t.estimated ? " (est.)" : ""), held \(t.heldLabel), return \(String(format: "%+.1f%%", t.totalReturnPct))"
+        }.joined(separator: "\n")
+        let holdingLines = portfolio.holdings.map { h -> String in
+            let q = quotes[h.symbol]
+            return "\(h.symbol): qty \(num(h.quantity)), cost \(usd(h.costBasis)), now \(q.map { usd($0.price) } ?? "?")"
+        }.joined(separator: "\n")
+        let system = """
+        You are a careful market analysis assistant running fully locally on the user's machine. \
+        Use ONLY the data provided. Structure: 1) MARKET CONTEXT 2) RIGHT / WRONG in the portfolio \
+        3) WORTH CONSIDERING (2–3 observations, never directives to buy or sell). \
+        End with exactly: "Not financial advice."
+        """
+        let user = """
+        === GLOBAL SENTIMENT (sourced) ===
+        \(sentiment.summary)
+        \(sentiment.headlines.prefix(5).map { "headline [\($0.source)]: \($0.title)" }.joined(separator: "\n"))
+
+        === MY PORTFOLIO (live) ===
+        \(holdingLines)
+
+        === POSITION TIMELINES (est. = detected, not stated) ===
+        \(timelineLines)
+        """
+        do {
+            let text = try await LlmService.analyze(
+                system: system, user: user,
+                endpoint: config.llmEndpoint ?? "http://localhost:11434",
+                model: config.llmModel ?? "qwen2.5:7b")
+            print(text)
+        } catch {
+            print(Ansi.yellow("⚠ \(error.localizedDescription)"))
+        }
+    }
+}
+
+if watch {
+    while true {
+        print("\u{1B}[2J\u{1B}[H", terminator: "") // clear screen, home cursor
+        await render()
+        try? await Task.sleep(nanoseconds: 60_000_000_000)
+    }
+} else {
+    await render()
+}

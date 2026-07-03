@@ -1,19 +1,31 @@
 import SwiftUI
+import UniformTypeIdentifiers
+import PulseKit
 
 @MainActor
 final class AppModel: ObservableObject {
     @Published var portfolio = Portfolio.load()
     @Published var quotes: [String: Quote] = [:]
     @Published var optionQuotes: [String: OptionsService.OptionQuote] = [:]
+    @Published var timelines: [String: PositionTimeline] = [:]
+    @Published var sentiment: GlobalSentiment? = nil
     @Published var lastRefresh: Date? = nil
     @Published var refreshing = false
+    /// Minute tick — re-evaluates the auto theme even when nothing else moves.
+    @Published var tick = Date()
 
+    let config = AppConfig.load()
     private var timer: Timer?
+    private var timelineSignature = ""
+    private var lastSentimentFetch: Date? = nil
 
     func start() {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in
+                self?.tick = Date()
+                self?.refresh()
+            }
         }
     }
 
@@ -33,6 +45,46 @@ final class AppModel: ObservableObject {
                 self.lastRefresh = Date()
                 self.refreshing = false
             }
+            await self.refreshTimelines(quotes: q)
+        }
+        refreshSentiment()
+    }
+
+    /// Timelines need 10y of history per symbol — fetch only when the
+    /// positions themselves change, not on every 60 s quote tick.
+    private func refreshTimelines(quotes: [String: Quote]) async {
+        let sig = portfolio.holdings
+            .map { "\($0.symbol)|\($0.costBasis)|\($0.acquired ?? "")" }
+            .joined(separator: ",")
+        guard sig != timelineSignature else { return }
+        let t = await TimelineService.timelines(for: portfolio.holdings, quotes: quotes)
+        self.timelines = t
+        self.timelineSignature = sig
+    }
+
+    /// Sentiment moves slowly — refetch at most every 5 minutes.
+    func refreshSentiment() {
+        if let t = lastSentimentFetch, Date().timeIntervalSince(t) < 300 { return }
+        lastSentimentFetch = Date()
+        let key = config.finnhubApiKey
+        Task {
+            let s = await SentimentService.fetch(finnhubKey: key)
+            await MainActor.run { self.sentiment = s }
+        }
+    }
+
+    func importCsv(from url: URL) -> String {
+        do {
+            let result = try CsvImporter.importFile(at: url)
+            if result.imported.isEmpty {
+                return "no positions found — need symbol + quantity + cost columns"
+            }
+            timelineSignature = "" // positions changed; re-detect timelines
+            refresh()
+            let skipped = result.skippedRows > 0 ? " (\(result.skippedRows) rows skipped)" : ""
+            return "imported \(result.imported.count) positions\(skipped)"
+        } catch {
+            return "import failed: \(error.localizedDescription)"
         }
     }
 
@@ -68,15 +120,19 @@ final class AppModel: ObservableObject {
 
 struct ContentView: View {
     @StateObject private var model = AppModel()
+    @AppStorage("themeMode") private var themeModeRaw = ThemeMode.auto.rawValue
 
     var body: some View {
+        let isDark = (ThemeMode(rawValue: themeModeRaw) ?? .auto).isDark(at: model.tick)
         LockGate { lock in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     HeaderCard(model: model, lock: lock)
+                    SentimentCard(model: model)
                     AllocationCard(model: model)
                     StatsCard(model: model)
                     HoldingsCard(model: model)
+                    TimelineCard(model: model)
                     if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
                     AnalysisCard(app: model)
                     footer
@@ -85,14 +141,14 @@ struct ContentView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(isDark ? .dark : .light)
         .frame(minWidth: 760, minHeight: 640)
         .onAppear { model.start() }
     }
 
     private var footer: some View {
         HStack {
-            Text("portfolio.json · quotes: Yahoo (delayed) · options: CBOE delayed")
+            Text("portfolio.json · quotes: Yahoo (delayed) · options: CBOE delayed · sentiment: VIX/alternative.me/Finnhub")
             Spacer()
             if let t = model.lastRefresh {
                 Text("updated \(t.formatted(date: .omitted, time: .shortened))")
@@ -106,7 +162,7 @@ struct ContentView: View {
 
 // MARK: - Cards
 
-private struct Card<Content: View>: View {
+struct Card<Content: View>: View {
     let title: String
     var trailing: String? = nil
     @ViewBuilder var content: Content
@@ -126,17 +182,19 @@ private struct Card<Content: View>: View {
             content
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.045)))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.07)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.08)))
     }
 }
 
 private struct HeaderCard: View {
     @ObservedObject var model: AppModel
     @ObservedObject var lock: LockModel
+    @AppStorage("themeMode") private var themeModeRaw = ThemeMode.auto.rawValue
     var body: some View {
         let allTime = model.totalValue - model.totalCost
         let allTimePct = model.totalCost > 0 ? allTime / model.totalCost * 100 : 0
+        let isDark = (ThemeMode(rawValue: themeModeRaw) ?? .auto).isDark(at: model.tick)
         HStack(alignment: .firstTextBaseline, spacing: 24) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("PORTFOLIO")
@@ -159,22 +217,38 @@ private struct HeaderCard: View {
             }
             .buttonStyle(.plain)
             .padding(8)
-            .background(Circle().fill(Color.white.opacity(0.06)))
+            .background(Circle().fill(Color.primary.opacity(0.07)))
             .help("Refresh quotes")
+            Menu {
+                Picker("Appearance", selection: $themeModeRaw) {
+                    ForEach(ThemeMode.allCases, id: \.rawValue) { m in
+                        Text(m.label).tag(m.rawValue)
+                    }
+                }
+            } label: {
+                Image(systemName: isDark ? "moon.fill" : "sun.max.fill")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .padding(8)
+            .background(Circle().fill(Color.primary.opacity(0.07)))
+            .help("Appearance — auto follows the time of day")
             Button { lock.lock() } label: {
                 Image(systemName: "lock.fill").font(.system(size: 12, weight: .semibold))
             }
             .buttonStyle(.plain)
             .padding(8)
-            .background(Circle().fill(Color.white.opacity(0.06)))
+            .background(Circle().fill(Color.primary.opacity(0.07)))
             .help("Lock Pulse (Touch ID to reopen)")
             .contextMenu {
                 Toggle("Require unlock on launch", isOn: lock.$lockEnabled)
             }
         }
         .padding(16)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.045)))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.07)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.08)))
     }
 }
 
@@ -260,6 +334,7 @@ private struct AllocationCard: View {
 
 private struct HoldingsCard: View {
     @ObservedObject var model: AppModel
+    @State private var importStatus = ""
     var body: some View {
         Card(title: "HOLDINGS", trailing: "30-day trend") {
             Grid(alignment: .trailing, horizontalSpacing: 16, verticalSpacing: 10) {
@@ -286,8 +361,28 @@ private struct HoldingsCard: View {
                     }
                 }
             }
+            HStack(spacing: 8) {
+                Button("Import CSV…") { importCsv() }
+                    .font(.system(size: 11))
+                Text(importStatus.isEmpty
+                     ? "broker export with symbol / quantity / cost columns — merges into portfolio.json"
+                     : importStatus)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+            }
         }
     }
+
+    private func importCsv() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.commaSeparatedText, .plainText]
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a CSV of positions (symbol, quantity, cost, optional date)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        importStatus = model.importCsv(from: url)
+    }
+
     private func head(_ s: String, leading: Bool = false) -> some View {
         Text(s).font(.system(size: 9, weight: .medium, design: .monospaced))
             .tracking(1).foregroundStyle(.tertiary)
@@ -338,8 +433,8 @@ private struct CallsCard: View {
 
 // MARK: - Widgets
 
-/// 30-day mini price line: green/red by trend, soft gradient underfill.
-private struct Sparkline: View {
+/// Mini price line: green/red by trend, soft gradient underfill.
+struct Sparkline: View {
     let closes: [Double]
     var body: some View {
         GeometryReader { geo in
@@ -369,13 +464,13 @@ private struct Sparkline: View {
                     .stroke(color.opacity(0.9), lineWidth: 1.4)
                 }
             } else {
-                RoundedRectangle(cornerRadius: 2).fill(Color.white.opacity(0.05))
+                RoundedRectangle(cornerRadius: 2).fill(Color.primary.opacity(0.06))
             }
         }
     }
 }
 
-private struct DayPill: View {
+struct DayPill: View {
     let pct: Double?
     var body: some View {
         let v = pct ?? 0
@@ -396,24 +491,11 @@ private struct DTEPill: View {
             .padding(.horizontal, 7).padding(.vertical, 2.5)
             .background(Capsule().fill(
                 d < 14 ? Color.orange.opacity(0.18) :
-                d < 45 ? Color.yellow.opacity(0.10) : Color.white.opacity(0.06)))
+                d < 45 ? Color.yellow.opacity(0.10) : Color.primary.opacity(0.07)))
             .foregroundStyle(d < 14 ? Color.orange : Color.secondary)
     }
 }
 
-private extension Text {
+extension Text {
     func cell() -> Text { font(.system(size: 12.5, design: .monospaced)) }
 }
-
-// MARK: - Formatting
-
-func usd(_ v: Double) -> String {
-    let f = NumberFormatter()
-    f.numberStyle = .currency; f.currencyCode = "USD"
-    f.maximumFractionDigits = abs(v) >= 1000 ? 0 : 2
-    return f.string(from: v as NSNumber) ?? "$\(v)"
-}
-func num(_ v: Double) -> String {
-    v == v.rounded() ? String(Int(v)) : String(format: "%.4g", v)
-}
-func pct(_ v: Double) -> String { String(format: "%+.2f%%", v) }

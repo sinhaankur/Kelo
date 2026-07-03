@@ -1,4 +1,5 @@
 import SwiftUI
+import PulseKit
 
 /// "What's right / what's wrong" — deterministic stats computed from live
 /// data. No model, no opinion: win rate, extremes, concentration, and risk
@@ -54,6 +55,21 @@ struct StatsCard: View {
                 f.append((false, "\(c.underlying) \(Int(c.strike))C is OTM — needs \(String(format: "%.1f", need))% move by \(c.expiry)"))
             }
         }
+        // Timeline verdicts: annualized return vs the S&P over the SAME
+        // holding window — only meaningful once a position is ≥6 months old.
+        for h in model.portfolio.holdings {
+            guard let t = model.timelines[h.symbol],
+                  t.holdingDays >= 180,
+                  let ann = t.annualizedPct, let bench = t.benchmarkPct
+            else { continue }
+            let benchAnn = (pow(1 + bench / 100, 365.25 / Double(t.holdingDays)) - 1) * 100
+            let est = t.estimated ? " (est. date)" : ""
+            if ann >= benchAnn + 5 {
+                f.append((true, "\(h.symbol) held \(t.heldLabel)\(est): \(String(format: "%+.1f", ann))%/y vs S&P \(String(format: "%+.1f", benchAnn))%/y — beating the index"))
+            } else if ann <= benchAnn - 5 {
+                f.append((false, "\(h.symbol) held \(t.heldLabel)\(est): \(String(format: "%+.1f", ann))%/y vs S&P \(String(format: "%+.1f", benchAnn))%/y — lagging the index"))
+            }
+        }
         return f
     }
 
@@ -94,8 +110,8 @@ struct StatsCard: View {
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.045)))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.07)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.08)))
     }
 
     private func tile(_ label: String, _ symbol: String, _ value: String, _ color: Color) -> some View {
@@ -106,6 +122,6 @@ struct StatsCard: View {
             Text(value).font(.system(size: 12, design: .monospaced)).foregroundStyle(color)
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
     }
 }

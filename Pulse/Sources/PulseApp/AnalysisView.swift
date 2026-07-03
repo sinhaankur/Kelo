@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import PulseKit
 
 /// Screenshot → on-device OCR → local LLM analysis, grounded in REAL fetched
 /// market data (indices + the user's portfolio) so the model interprets
@@ -42,6 +43,32 @@ final class AnalysisModel: ObservableObject {
                 return "\(h.symbol): qty \(num(h.quantity)), cost \(usd(h.costBasis)), now \(q.map { usd($0.price) } ?? "?"), P/L \(usd(pl))"
             }.joined(separator: "\n")
 
+            // Since-invested timelines (dates marked "est." were detected
+            // from price history, not stated by the user).
+            let timelines = await MainActor.run {
+                portfolio.portfolio.holdings.compactMap { h -> String? in
+                    guard let t = portfolio.timelines[h.symbol] else { return nil }
+                    let ann = t.annualizedPct.map { String(format: "%+.1f%%/y", $0) } ?? "n/a"
+                    let bench = t.benchmarkPct.map { String(format: "%+.1f%%", $0) } ?? "n/a"
+                    return "\(h.symbol): invested \(t.acquiredLabel)\(t.estimated ? " (est.)" : ""), held \(t.heldLabel), return \(String(format: "%+.1f%%", t.totalReturnPct)), annualized \(ann), S&P same window \(bench)"
+                }.joined(separator: "\n")
+            }
+
+            // Global sentiment — sourced gauges + recent headlines when a
+            // Finnhub key is configured.
+            let sentimentContext = await MainActor.run { () -> String in
+                guard let s = portfolio.sentiment else { return "(not fetched)" }
+                var lines = [s.summary]
+                if !s.indices.isEmpty {
+                    lines.append(s.indices.map { "\($0.name) \(String(format: "%+.1f%%", $0.dayPct))" }
+                        .joined(separator: ", "))
+                }
+                for h in s.headlines.prefix(5) {
+                    lines.append("headline [\(h.source)]: \(h.title)")
+                }
+                return lines.joined(separator: "\n")
+            }
+
             let system = """
             You are a careful market analysis assistant running fully locally on the user's Mac. \
             Use ONLY the data provided — the OCR text of the user's screenshot, real index statistics, \
@@ -62,6 +89,12 @@ final class AnalysisModel: ObservableObject {
 
             === MY PORTFOLIO (live) ===
             \(holdings)
+
+            === POSITION TIMELINES (est. = detected, not stated) ===
+            \(timelines.isEmpty ? "(none)" : timelines)
+
+            === GLOBAL SENTIMENT (sourced: VIX, index breadth, alternative.me, Finnhub) ===
+            \(sentimentContext)
             """
 
             await MainActor.run { self.status = "analyzing with \(self.model) (local)…" }
@@ -135,20 +168,20 @@ struct AnalysisCard: View {
                 }
                 .frame(maxHeight: 260)
                 .padding(10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.25)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.045)))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.07)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.08)))
     }
 
     private var dropZone: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(dropActive ? Color.accentColor : Color.white.opacity(0.15),
+                .strokeBorder(dropActive ? Color.accentColor : Color.primary.opacity(0.2),
                               style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.03)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
             if let img = model.image {
                 Image(nsImage: img).resizable().scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 6)).padding(4)

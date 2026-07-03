@@ -1,21 +1,24 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
-struct LlmError: LocalizedError {
-    let message: String
-    var errorDescription: String? { message }
+public struct LlmError: LocalizedError {
+    public let message: String
+    public var errorDescription: String? { message }
 }
 
 /// Local LLM bridge — Ollama's chat API on localhost (or any host the user
 /// sets). Nothing is sent to a cloud service; the analysis stays on-machine.
-enum LlmService {
+public enum LlmService {
     private struct ChatResponse: Decodable {
         struct Message: Decodable { let content: String }
         let message: Message?
         let error: String?
     }
 
-    static func analyze(system: String, user: String,
-                        endpoint: String, model: String) async throws -> String {
+    public static func analyze(system: String, user: String,
+                               endpoint: String, model: String) async throws -> String {
         guard let url = URL(string: "\(endpoint.trimmingCharacters(in: .whitespaces))/api/chat") else {
             throw LlmError(message: "Bad endpoint URL")
         }

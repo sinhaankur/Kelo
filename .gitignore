@@ -1,4 +1,6 @@
 .DS_Store
 .build/
+.build-linux/
 *.app
 portfolio.json
+config.json

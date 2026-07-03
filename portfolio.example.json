@@ -1,11 +1,11 @@
 {
   "holdings": [
-    { "symbol": "AAPL",    "quantity": 10,  "costBasis": 250.00 },
+    { "symbol": "AAPL",    "quantity": 10,  "costBasis": 250.00, "acquired": "2025-11-03" },
     { "symbol": "MSFT",    "quantity": 5,   "costBasis": 410.00 },
     { "symbol": "BTC-USD", "quantity": 0.1, "costBasis": 55000.00 }
   ],
   "calls": [
     { "underlying": "MSFT", "strike": 500.0, "expiry": "2026-09-18", "contracts": 1, "premiumPaid": 850.0 }
   ],
-  "_note": "PLACEHOLDERS — replace with your real positions. costBasis/premiumPaid in USD per share / per position."
+  "_note": "PLACEHOLDERS — replace with your real positions. costBasis/premiumPaid in USD per share / per position. acquired (YYYY-MM-DD) is optional — without it Pulse estimates the invested date from price history and marks it est."
 }

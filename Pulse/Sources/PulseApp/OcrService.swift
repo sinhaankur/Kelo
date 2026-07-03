@@ -1,5 +1,5 @@
 import Foundation
-import Vision
+@preconcurrency import Vision
 import AppKit
 
 /// On-device OCR via Apple's Vision framework — the screenshot never leaves

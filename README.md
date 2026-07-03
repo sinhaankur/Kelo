@@ -1,12 +1,28 @@
 # Stock Tracker (Pulse)
 
-Private, local-first macOS app that reads MY portfolio (stocks, crypto,
-call options) from `~/Documents/stock-tracker/portfolio.json` and shows
-live value + P&L. Quotes: Yahoo Finance chart endpoint (keyless, may be
-delayed — personal use). NEVER pushed to a public remote; portfolio.json
-is gitignored (positions stay off git entirely).
+Private, local-first portfolio tracker (stocks, crypto, call options) that
+reads `~/Documents/stock-tracker/portfolio.json` and shows live value + P&L,
+since-invested timelines, and global sentiment. Everything runs on-device:
+quotes fetched directly, OCR via Apple Vision (macOS), LLM analysis via local
+Ollama. NEVER pushed to a public remote; portfolio.json and config.json are
+gitignored (positions and keys stay off git entirely).
 
-Build & run:
-  cd macos/Pulse && ./build-app.sh && open Pulse.app
+Two frontends over one Swift core (`Pulse/Sources/PulseKit`):
 
-Edit holdings: open portfolio.json (created from the example on first run).
+- **macOS app** (SwiftUI): `cd Pulse && ./build-app.sh && open Pulse.app`
+- **Terminal dashboard** (macOS + Linux): `cd Pulse && swift run pulse-tui`
+  - `--watch` refresh every 60s · `--analyze` local-LLM read ·
+    `--import file.csv` merge a broker CSV · `--no-color`
+  - Linux: needs Swift ≥5.9 (verified with the official `swift` Docker image).
+
+Data sources (all labeled in-app): Yahoo chart endpoint (delayed quotes +
+history), CBOE delayed option chains, alternative.me crypto Fear & Greed,
+Finnhub market headlines (key in `config.json`, see `config.example.json`).
+
+Positions: edit portfolio.json (seeded from the example on first run) or
+import a broker CSV. `acquired` dates are optional — when missing, Pulse
+estimates the invested date from where price history last crossed your cost
+basis and labels it `est.`; it never presents the guess as fact.
+
+Appearance follows the clock (light 07–19, dark otherwise) with a manual
+override in the app header.
