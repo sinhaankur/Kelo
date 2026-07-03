@@ -115,11 +115,19 @@ public enum CsvImporter {
             guard !raw.isEmpty, let qty, qty > 0, let book, book > 0 else { skipped += 1; continue }
             let exchange = exchCol.flatMap { $0 < cells.count ? cells[$0].uppercased() : nil } ?? ""
             let currency = bookCurCol.flatMap { $0 < cells.count ? cells[$0].uppercased() : nil } ?? "USD"
+            let secType = cells[typeCol].uppercased()
             let symbol = yahooSymbol(raw: raw, exchange: exchange,
-                                     securityType: cells[typeCol].uppercased(),
+                                     securityType: secType,
                                      bookCurrency: currency)
+            let assetClass: String
+            switch secType {
+            case "CRYPTOCURRENCY": assetClass = "Crypto"
+            case "EXCHANGE_TRADED_FUND": assetClass = "ETF"
+            case "EQUITY": assetClass = "Stock"
+            default: assetClass = secType.capitalized
+            }
             out.append(Holding(symbol: symbol, quantity: qty, costBasis: book / qty,
-                               acquired: nil, currency: currency))
+                               acquired: nil, currency: currency, assetClass: assetClass))
         }
         // Same asset across accounts (TFSA + RRSP + …) AGGREGATES: total
         // quantity, book-weighted average cost — replacing would drop shares.
@@ -132,7 +140,8 @@ public enum CsvImporter {
                 bySymbol[h.symbol] = Holding(symbol: h.symbol, quantity: qty,
                                              costBasis: book / qty,
                                              acquired: existing.acquired,
-                                             currency: existing.currency)
+                                             currency: existing.currency,
+                                             assetClass: existing.assetClass)
             } else {
                 bySymbol[h.symbol] = h
                 order.append(h.symbol)

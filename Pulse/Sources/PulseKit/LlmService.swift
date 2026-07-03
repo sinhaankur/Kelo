@@ -79,6 +79,15 @@ public enum LlmService {
         return parsed.content?.compactMap(\.text).joined() ?? ""
     }
 
+    /// Quick health check — is a model server answering at this endpoint?
+    public static func ping(endpoint: String) async -> Bool {
+        guard let url = URL(string: "\(endpoint.trimmingCharacters(in: .whitespaces))/api/tags") else { return false }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 2
+        guard let (_, resp) = try? await URLSession.shared.data(for: req) else { return false }
+        return (resp as? HTTPURLResponse)?.statusCode == 200
+    }
+
     /// Route by config: Ollama by default (on-device), Anthropic only when
     /// explicitly configured.
     public static func analyzeRouted(system: String, user: String, config: AppConfig,

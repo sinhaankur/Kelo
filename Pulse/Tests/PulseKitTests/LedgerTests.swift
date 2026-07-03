@@ -115,6 +115,28 @@ final class DividendYieldTests: XCTestCase {
         XCTAssertNil(QuoteService.yieldPct(dividendSum: 0, price: 100))  // none paid ≠ 0% claim
         XCTAssertNil(QuoteService.yieldPct(dividendSum: 1, price: 0))
     }
+
+    func testPayoutStatsTtmAndDecayTrend()  {
+        let now = Date()
+        func d(_ monthsAgo: Int) -> Date { now.addingTimeInterval(-Double(monthsAgo) * 30 * 86_400) }
+        // Payout shrinking each month: 1.0, 0.9 … — a decaying annuity.
+        let events = (0..<8).reversed().map { i in
+            (date: d(i), amount: 1.0 - Double(7 - i) * 0.1)
+        }
+        let s = IncomeService.payoutStats(events: events, now: now)
+        XCTAssertEqual(s.ttmPerShare, events.map(\.amount).reduce(0, +), accuracy: 0.001)
+        XCTAssertNotNil(s.trendPct)
+        XCTAssertLessThan(s.trendPct!, -10) // clearly decaying
+    }
+
+    func testStablePayoutIsNotFlaggedDecaying() {
+        let now = Date()
+        let events = (0..<8).map { i in
+            (date: now.addingTimeInterval(-Double(i) * 30 * 86_400), amount: 0.5)
+        }
+        let s = IncomeService.payoutStats(events: events.reversed(), now: now)
+        XCTAssertEqual(s.trendPct ?? 0, 0, accuracy: 0.001)
+    }
 }
 
 final class EquitySymbolTests: XCTestCase {

@@ -13,14 +13,19 @@ public struct Holding: Codable, Identifiable {
     /// Currency of costBasis (e.g. "CAD"). Should match the listing's quote
     /// currency so per-position returns stay a pure ratio; nil = USD.
     public let currency: String?
+    /// "Stock" / "ETF" / "Crypto" — from the brokerage report's security
+    /// type. nil = unknown (hand-entered rows).
+    public let assetClass: String?
 
     public init(symbol: String, quantity: Double, costBasis: Double,
-                acquired: String? = nil, currency: String? = nil) {
+                acquired: String? = nil, currency: String? = nil,
+                assetClass: String? = nil) {
         self.symbol = symbol
         self.quantity = quantity
         self.costBasis = costBasis
         self.acquired = acquired
         self.currency = currency
+        self.assetClass = assetClass
     }
 
     public var acquiredDate: Date? { acquired.flatMap(parseISODate) }

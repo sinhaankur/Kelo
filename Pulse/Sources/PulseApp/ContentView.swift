@@ -16,6 +16,9 @@ final class AppModel: ObservableObject {
     @Published var watchlist: [String] = []
     @Published var reviewItems: [ReviewItem] = []
     @Published var verdicts: [PositionVerdict] = []
+    @Published var incomeReport: IncomeReport? = nil
+
+    private var ollamaProcess: Process? = nil
     @Published var snapshots: [DailySnapshot] = []
     @Published var lastRefresh: Date? = nil
     @Published var refreshing = false
@@ -53,10 +56,40 @@ final class AppModel: ObservableObject {
     func start() {
         guard timer == nil else { return }
         refresh()
+        startOllamaIfNeeded()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.tick = Date()
                 self?.refresh()
+            }
+        }
+    }
+
+    /// Ollama runs by default: if the endpoint isn't answering and the user
+    /// hasn't opted out (autoStartOllama: false) or switched provider,
+    /// launch `ollama serve` and stop it again when Pulse quits.
+    private func startOllamaIfNeeded() {
+        guard config.autoStartOllama ?? true, !config.usesAnthropicCloud else { return }
+        let endpoint = config.llmEndpoint ?? "http://localhost:11434"
+        Task {
+            guard await !LlmService.ping(endpoint: endpoint) else { return }
+            let candidates = ["/opt/homebrew/bin/ollama", "/usr/local/bin/ollama"]
+            guard let bin = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+            else { return } // not installed — the analyze card will say so
+            await MainActor.run {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: bin)
+                proc.arguments = ["serve"]
+                proc.standardOutput = FileHandle.nullDevice
+                proc.standardError = FileHandle.nullDevice
+                try? proc.run()
+                self.ollamaProcess = proc
+                NotificationCenter.default.addObserver(
+                    forName: NSApplication.willTerminateNotification,
+                    object: nil, queue: .main) { [weak self] _ in
+                    // Only stop what we started — never someone's own server.
+                    MainActor.assumeIsolated { self?.ollamaProcess?.terminate() }
+                }
             }
         }
     }
@@ -165,6 +198,9 @@ final class AppModel: ObservableObject {
         self.benchmarkHistory = analysis.benchmark
         self.timelineSignature = sig
         self.recomputePaperReviews()
+        let income = await IncomeService.report(holdings: portfolio.holdings,
+                                                quotes: quotes, fxRates: fxRates)
+        self.incomeReport = income
     }
 
     /// Sentiment + per-holding news move slowly — refetch at most every 5 min.
@@ -326,6 +362,7 @@ struct ContentView: View {
                             }
                         case .positions:
                             HoldingsCard(model: model)
+                            IncomeCard(model: model)
                             TimelineCard(model: model)
                             if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
                         case .analysis:
@@ -683,13 +720,41 @@ private struct HoldingsCard: View {
     @ObservedObject var model: AppModel
     @State private var importStatus = ""
     var body: some View {
-        Card(title: "HOLDINGS", trailing: "tap a symbol for its outlook · 30-day trend") {
+        Card(title: "HOLDINGS", trailing: "grouped by asset class · tap a symbol for its outlook") {
+            // Stocks / ETFs / Crypto sections, each sorted by size.
+            let groups: [(String, [Holding])] = {
+                let sorted = model.sortedHoldings
+                let order = ["Stock", "ETF", "Crypto"]
+                var out: [(String, [Holding])] = []
+                for cls in order {
+                    let members = sorted.filter { ($0.assetClass ?? "Stock") == cls }
+                    if !members.isEmpty { out.append((cls, members)) }
+                }
+                let known = Set(order)
+                let rest = sorted.filter { !known.contains($0.assetClass ?? "Stock") }
+                if !rest.isEmpty { out.append(("Other", rest)) }
+                return out
+            }()
             Grid(alignment: .trailing, horizontalSpacing: 16, verticalSpacing: 10) {
                 GridRow {
                     head("SYMBOL", leading: true); head(""); head("QTY"); head("PRICE")
                     head("DAY"); head("VALUE"); head("P/L")
                 }
-                ForEach(model.sortedHoldings) { h in
+                ForEach(groups, id: \.0) { cls, members in
+                GridRow {
+                    Text("\(cls.uppercased())S — \(members.count)")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .tracking(1.5)
+                        .foregroundStyle(.secondary)
+                        .gridColumnAlignment(.leading)
+                        .gridCellColumns(3)
+                    Text(usd(members.reduce(0) { $0 + model.holdingValue($1) }))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .gridCellColumns(4)
+                }
+                .padding(.top, 4)
+                ForEach(members) { h in
                     let q = model.quotes[h.symbol]
                     let value = model.holdingValue(h)
                     let pl = value - model.holdingCost(h)
@@ -718,6 +783,7 @@ private struct HoldingsCard: View {
                         Text(q != nil ? usd(pl) : "—").cell()
                             .foregroundStyle(pl >= 0 ? Color.green : Color.red)
                     }
+                }
                 }
             }
             HStack(spacing: 8) {

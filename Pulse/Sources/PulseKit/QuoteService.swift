@@ -65,6 +65,22 @@ public enum QuoteService {
         return dividendSum / price * 100
     }
 
+    /// All dividend events (date, amount per share) over `range`, oldest
+    /// first — the raw record income analysis is built from.
+    public static func dividendEvents(symbol: String, range: String = "2y") async -> [(date: Date, amount: Double)] {
+        let req = chartRequest(symbol: symbol, range: range, interval: "1mo", events: true)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let parsed = try? JSONDecoder().decode(ChartResponse.self, from: data),
+              let divs = parsed.chart.result?.first?.events?.dividends
+        else { return [] }
+        return divs.compactMap { key, div -> (Date, Double)? in
+            guard let ts = TimeInterval(key), let amount = div.amount else { return nil }
+            return (Date(timeIntervalSince1970: ts), amount)
+        }
+        .sorted { $0.0 < $1.0 }
+    }
+
     public static func fetch(symbol: String) async -> Quote? {
         // 1mo of daily closes → the row sparkline; meta still carries the
         // live price + previous close.

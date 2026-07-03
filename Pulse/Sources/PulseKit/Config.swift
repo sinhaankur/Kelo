@@ -17,11 +17,14 @@ public struct AppConfig: Codable {
     /// Cash sitting in the brokerage, for the Trade Draft card's affordability
     /// math. Pulse only reads it — it never places orders anywhere.
     public var cashAvailable: Double?
+    /// Launch `ollama serve` automatically when the app starts and it isn't
+    /// already running (default true; set false to manage Ollama yourself).
+    public var autoStartOllama: Bool?
 
     public init(finnhubApiKey: String? = nil, llmProvider: String? = nil,
                 llmEndpoint: String? = nil, llmModel: String? = nil,
                 anthropicApiKey: String? = nil, displayCurrency: String? = nil,
-                cashAvailable: Double? = nil) {
+                cashAvailable: Double? = nil, autoStartOllama: Bool? = nil) {
         self.finnhubApiKey = finnhubApiKey
         self.llmProvider = llmProvider
         self.llmEndpoint = llmEndpoint
@@ -29,6 +32,7 @@ public struct AppConfig: Codable {
         self.anthropicApiKey = anthropicApiKey
         self.displayCurrency = displayCurrency
         self.cashAvailable = cashAvailable
+        self.autoStartOllama = autoStartOllama
     }
 
     public var usesAnthropicCloud: Bool {
