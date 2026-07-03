@@ -397,6 +397,7 @@ struct ContentView: View {
                         case .trade:
                             IdeasCard(model: model)
                             TradeDraftCard(model: model)
+                            IBKRCard(model: model)
                             if model.paperTrades.isEmpty {
                                 Card(title: "PAPER TRADES") {
                                     Text("no paper trades yet — draft above and press \"Log paper trade\" to start scoring your calls against reality")

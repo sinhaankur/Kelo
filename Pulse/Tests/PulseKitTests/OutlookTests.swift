@@ -174,6 +174,25 @@ final class AgentTests: XCTestCase {
     }
 }
 
+final class IBKRGuardTests: XCTestCase {
+    func testLiveAccountsAreRefusedInCode() {
+        // The paper lock is structural: a U-prefixed (live) account throws.
+        XCTAssertThrowsError(try IBKRService.validatePaperOrder(
+            accountId: "U1234567", quantity: 1, notional: 100))
+        XCTAssertNoThrow(try IBKRService.validatePaperOrder(
+            accountId: "DU1234567", quantity: 1, notional: 100))
+    }
+
+    func testCeilingAndShareGuards() {
+        XCTAssertThrowsError(try IBKRService.validatePaperOrder(
+            accountId: "DU1234567", quantity: 0, notional: 100))
+        XCTAssertThrowsError(try IBKRService.validatePaperOrder(
+            accountId: "DU1234567", quantity: 5, notional: 1_500))
+        XCTAssertNoThrow(try IBKRService.validatePaperOrder(
+            accountId: "DU1234567", quantity: 5, notional: 999))
+    }
+}
+
 final class BrokerageImportTests: XCTestCase {
     func testYahooSymbolMapping() {
         XCTAssertEqual(CsvImporter.yahooSymbol(raw: "SHOP", exchange: "TSX", securityType: "EQUITY", bookCurrency: "CAD"), "SHOP.TO")

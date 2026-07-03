@@ -20,11 +20,14 @@ public struct AppConfig: Codable {
     /// Launch `ollama serve` automatically when the app starts and it isn't
     /// already running (default true; set false to manage Ollama yourself).
     public var autoStartOllama: Bool?
+    /// IBKR Client Portal Gateway address (paper-account execution rails).
+    public var ibkrGateway: String?
 
     public init(finnhubApiKey: String? = nil, llmProvider: String? = nil,
                 llmEndpoint: String? = nil, llmModel: String? = nil,
                 anthropicApiKey: String? = nil, displayCurrency: String? = nil,
-                cashAvailable: Double? = nil, autoStartOllama: Bool? = nil) {
+                cashAvailable: Double? = nil, autoStartOllama: Bool? = nil,
+                ibkrGateway: String? = nil) {
         self.finnhubApiKey = finnhubApiKey
         self.llmProvider = llmProvider
         self.llmEndpoint = llmEndpoint
@@ -33,6 +36,7 @@ public struct AppConfig: Codable {
         self.displayCurrency = displayCurrency
         self.cashAvailable = cashAvailable
         self.autoStartOllama = autoStartOllama
+        self.ibkrGateway = ibkrGateway
     }
 
     public var usesAnthropicCloud: Bool {
