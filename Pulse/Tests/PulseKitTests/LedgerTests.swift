@@ -137,6 +137,23 @@ final class DividendYieldTests: XCTestCase {
         let s = IncomeService.payoutStats(events: events.reversed(), now: now)
         XCTAssertEqual(s.trendPct ?? 0, 0, accuracy: 0.001)
     }
+
+    func testIncomeVerdictWords() {
+        func pos(trend: Double?, pl: Double) -> IncomePosition {
+            IncomePosition(symbol: "X", ttmIncome: 100, valueNow: 500,
+                           pricePL: pl, payoutTrendPct: trend)
+        }
+        XCTAssertEqual(pos(trend: -35, pl: -4000).verdict, .decayingAnnuity)
+        XCTAssertEqual(pos(trend: 2, pl: 57).verdict, .realIncome)
+        XCTAssertEqual(pos(trend: 2, pl: -282).verdict, .watch)   // stable payout, damaged price
+        XCTAssertEqual(pos(trend: nil, pl: 10).verdict, .realIncome)
+    }
+
+    func testSustainableBaseline() {
+        // C$16.7k at the 4% rule of thumb ≈ C$55.7/mo — anything far above
+        // what an account can sustain is principal on an installment plan.
+        XCTAssertEqual(IncomeReport.sustainableMonthly(portfolioValue: 16_700), 55.67, accuracy: 0.01)
+    }
 }
 
 final class EquitySymbolTests: XCTestCase {

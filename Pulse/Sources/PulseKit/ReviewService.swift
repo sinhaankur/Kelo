@@ -173,3 +173,60 @@ extension ReviewService {
         }
     }
 }
+
+// MARK: - Trade ideas (paper-first)
+
+/// Candidates generated from observable signals in the user's own book —
+/// NOT predictions. A LONG candidate is a position in a working uptrend;
+/// a SHORT candidate is a broken chart. Every idea is meant to be logged
+/// as a paper trade and scored before any real money moves.
+public struct TradeIdea {
+    public let direction: String   // "LONG" / "SHORT (paper)"
+    public let symbol: String
+    public let thesis: String      // the numbers behind it
+}
+
+extension ReviewService {
+    public static func ideas(holdings: [Holding],
+                             quotes: [String: Quote],
+                             timelines: [String: PositionTimeline],
+                             verdicts: [PositionVerdict],
+                             fxRates: [String: Double]) -> (longs: [TradeIdea], shorts: [TradeIdea]) {
+        func fx(_ currency: String?) -> Double { fxRates[currency ?? "USD"] ?? 1 }
+        let callBySymbol = Dictionary(uniqueKeysWithValues: verdicts.map { ($0.symbol, $0.call) })
+
+        // LONG candidates: HOLD verdict, above the 200-day, near its high,
+        // and actually beating the index over the holding period. Trend
+        // continuation is the only long signal with any base-rate support —
+        // and it still fails often, which is what the paper score is for.
+        var longs: [(TradeIdea, Double)] = []
+        for h in holdings {
+            guard callBySymbol[h.symbol] == .hold,
+                  let t = timelines[h.symbol], let q = quotes[h.symbol],
+                  let ma = t.vsMa200Pct, ma > 0,
+                  let fromHigh = t.pctFromAllTimeHigh, fromHigh > -15,
+                  t.holdingDays >= 180,
+                  let ann = t.annualizedPct, let bench = t.benchmarkPct else { continue }
+            let benchAnn = (pow(1 + bench / 100, 365.25 / Double(t.holdingDays)) - 1) * 100
+            guard ann > benchAnn else { continue }
+            let value = q.price * fx(q.currency) * h.quantity
+            longs.append((TradeIdea(
+                direction: "LONG",
+                symbol: h.symbol,
+                thesis: "uptrend intact: +\(String(format: "%.0f", ma))% above 200-day, \(String(format: "%.0f", fromHigh))% from its high, \(String(format: "%+.1f", ann))%/y vs S&P \(String(format: "%+.1f", benchAnn))%/y over \(t.heldLabel)"),
+                value))
+        }
+
+        // SHORT candidates (paper only): the biggest broken charts. Real
+        // shorting costs borrow fees and can be squeezed — these exist to
+        // train the read, not to place.
+        let shorts = verdicts.filter { $0.call == .exit }
+            .prefix(5)
+            .map { v in
+                TradeIdea(direction: "SHORT (paper)", symbol: v.symbol,
+                          thesis: v.reasons.joined(separator: " · "))
+            }
+
+        return (longs.sorted { $0.1 > $1.1 }.prefix(5).map(\.0), Array(shorts))
+    }
+}

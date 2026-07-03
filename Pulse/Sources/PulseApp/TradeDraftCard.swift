@@ -151,7 +151,12 @@ struct TradeDraftCard: View {
                 notes.append((realized >= 0,
                               "realized P/L vs cost \(usd(costPerShare)): \(usd(realized))"))
             } else {
-                notes.append((false, "\(symbol) is not in your portfolio — nothing to sell"))
+                // Not held → a SHORT call, first-class on paper: log it and
+                // Pulse scores it (right if the price falls). Blunt truth
+                // attached: real shorting pays borrow fees and has unlimited
+                // downside — paper is where the thesis gets proven.
+                notes.append((true, "you don't hold \(symbol) — this is a SHORT call (paper): scored as right if the price falls from \(usd(price))"))
+                notes.append((false, "real shorting = borrow fees + unlimited downside + squeeze risk; prove it on paper first"))
             }
         }
 

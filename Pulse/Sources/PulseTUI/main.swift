@@ -282,6 +282,32 @@ func render() async {
         out.append("")
     }
 
+    // Income truth table — payouts vs price damage, with the honest baseline.
+    let income = await IncomeService.report(holdings: portfolio.holdings,
+                                            quotes: quotes, fxRates: fxRates)
+    if !income.positions.isEmpty {
+        let sustainable = IncomeReport.sustainableMonthly(portfolioValue: totalValue)
+        out.append(Ansi.header("INCOME") + Ansi.dim("  ≈ \(usd(income.totalMonthly))/mo TTM · sustainable baseline ≈ \(usd(sustainable))/mo at 4%"))
+        for p in income.positions.prefix(6) {
+            let verdict: String
+            switch p.verdict {
+            case .decayingAnnuity: verdict = Ansi.red("decaying annuity")
+            case .watch: verdict = Ansi.yellow("watch")
+            case .realIncome: verdict = Ansi.green("real income")
+            }
+            var line = "  " + pad(Ansi.bold(p.symbol), 10)
+            line += pad(usd(p.monthlyEstimate) + "/mo", 12, right: true)
+            line += pad(signed(p.pricePL, "%+.0f"), 10, right: true)
+            line += pad(p.payoutTrendPct.map { signed($0, "%+.0f%%") } ?? Ansi.dim("—"), 8, right: true)
+            line += "  " + verdict
+            out.append(line)
+        }
+        if income.totalMonthly > sustainable * 1.25 {
+            out.append("  " + Ansi.yellow("⚠ ≈ \(usd(income.totalMonthly - sustainable))/mo of the collected income is principal coming back, not earnings"))
+        }
+        out.append("")
+    }
+
     // Verdicts — a committed, condition-based call per position.
     let verdicts = ReviewService.verdicts(holdings: portfolio.holdings, quotes: quotes,
                                           timelines: timelines, fxRates: fxRates)

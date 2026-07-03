@@ -372,6 +372,7 @@ struct ContentView: View {
                             StatsCard(model: model)
                             AnalysisCard(app: model)
                         case .trade:
+                            IdeasCard(model: model)
                             TradeDraftCard(model: model)
                             if model.paperTrades.isEmpty {
                                 Card(title: "PAPER TRADES") {

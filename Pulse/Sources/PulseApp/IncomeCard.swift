@@ -32,6 +32,7 @@ struct IncomeCard: View {
                             GridRow {
                                 head("PAYER", leading: true); head("$/MO"); head("TTM")
                                 head("VALUE"); head("PRICE P/L"); head("PAYOUT TREND")
+                                head("VERDICT", leading: true)
                             }
                             ForEach(r.positions.prefix(12), id: \.symbol) { p in
                                 GridRow {
@@ -53,15 +54,49 @@ struct IncomeCard: View {
                                     Text(usd(p.pricePL)).cell()
                                         .foregroundStyle(p.pricePL >= 0 ? Color.green : Color.red)
                                     trendPill(p)
+                                    Text(verdictLabel(p))
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(verdictColor(p))
+                                        .gridColumnAlignment(.leading)
                                 }
                             }
                         }
+                        baseline(r)
                     }
                 }
             } else {
                 Text("checking distribution history for your top positions…")
                     .font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
             }
+        }
+    }
+
+    /// The line that keeps the whole card honest: what this account can
+    /// sustainably pay vs what it's currently collecting.
+    private func baseline(_ r: IncomeReport) -> some View {
+        let sustainable = IncomeReport.sustainableMonthly(portfolioValue: model.totalValue)
+        let gap = r.totalMonthly - sustainable
+        return Group {
+            if r.totalMonthly > sustainable * 1.25 {
+                Text("honest baseline: a \(usd(model.totalValue)) account sustains ≈ \(usd(sustainable))/mo at a 4% rule-of-thumb — you're collecting \(usd(r.totalMonthly))/mo, so ≈ \(usd(gap))/mo of that is principal coming back, not earnings")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("honest baseline: ≈ \(usd(sustainable))/mo sustainable at a 4% rule-of-thumb on this account — your collected \(usd(r.totalMonthly))/mo is within it")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func verdictLabel(_ p: IncomePosition) -> String { p.verdict.rawValue }
+
+    private func verdictColor(_ p: IncomePosition) -> Color {
+        switch p.verdict {
+        case .decayingAnnuity: return .red
+        case .watch: return .orange
+        case .realIncome: return .green
         }
     }
 

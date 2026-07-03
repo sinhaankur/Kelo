@@ -19,6 +19,20 @@ public struct IncomePosition {
 
     /// Falling more than 10% per period = a decaying annuity, not income.
     public var decaying: Bool { (payoutTrendPct ?? 0) <= -10 }
+
+    /// The plain-words call, one per payer.
+    public enum Verdict: String {
+        case decayingAnnuity = "decaying annuity"
+        case watch = "watch"
+        case realIncome = "real income"
+    }
+    /// Stable payout on a healthy position = real income. Falling payout =
+    /// capital on an installment plan. Everything between = watch.
+    public var verdict: Verdict {
+        if decaying { return .decayingAnnuity }
+        if pricePL >= 0, (payoutTrendPct ?? 0) >= -5 { return .realIncome }
+        return .watch
+    }
 }
 
 public struct IncomeReport {
@@ -26,6 +40,13 @@ public struct IncomeReport {
     public var totalMonthly: Double { positions.reduce(0) { $0 + $1.monthlyEstimate } }
     public var decayingMonthly: Double {
         positions.filter(\.decaying).reduce(0) { $0 + $1.monthlyEstimate }
+    }
+
+    /// The honest baseline: what an account of this size sustains at a 4%
+    /// rule-of-thumb quality yield. Collected income far above this is, by
+    /// arithmetic, mostly principal coming back.
+    public static func sustainableMonthly(portfolioValue: Double) -> Double {
+        portfolioValue * 0.04 / 12
     }
 }
 
