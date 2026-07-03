@@ -110,11 +110,32 @@ public struct PositionVerdict {
         case review = "REVIEW"
         case hold = "HOLD"
     }
+    /// One decay marker: the short line shown, plus the plain-English rule
+    /// behind it (the exact threshold and why it matters). The "why" lives
+    /// here in the engine so the UI never invents an explanation.
+    public struct Marker {
+        public let text: String
+        public let explanation: String
+    }
     public let symbol: String
     public let call: Call
-    /// The specific markers that fired, each with its number.
-    public let reasons: [String]
+    public let markers: [Marker]
     public let valueAtStake: Double
+
+    /// Back-compat: the plain lines, for callers that only need the text.
+    public var reasons: [String] { markers.map(\.text) }
+
+    /// What EXIT / REVIEW / HOLD each mean, in one sentence.
+    public var callExplanation: String {
+        switch call {
+        case .exit:
+            return "EXIT CANDIDATE: two or more decay markers fired. The direction is out unless you can write down a specific reason this recovers that the market hasn't already priced. If you can't write that sentence, that's your answer."
+        case .review:
+            return "REVIEW: one decay marker fired. Not a sell signal — a flag to look closer and decide, before it becomes two."
+        case .hold:
+            return "HOLD: no decay markers. Nothing structurally wrong. Don't churn it looking for action."
+        }
+    }
 }
 
 extension ReviewService {
@@ -133,31 +154,39 @@ extension ReviewService {
         for h in holdings {
             guard let q = quotes[h.symbol] else { continue } // dead → REVIEW list handles
             let value = q.price * fx(q.currency) * h.quantity
-            var reasons: [String] = []
+            var markers: [PositionVerdict.Marker] = []
 
             if let t = timelines[h.symbol] {
                 if let fromHigh = t.pctFromAllTimeHigh, let ma = t.vsMa200Pct,
                    fromHigh <= -70, ma < 0 {
-                    reasons.append("broken chart: \(String(format: "%.0f", fromHigh))% from its high and below the 200-day average")
+                    markers.append(.init(
+                        text: "broken chart: \(String(format: "%.0f", fromHigh))% from its high and below the 200-day average",
+                        explanation: "Two things are both true: the price is at least 70% below its highest point ever (this one is \(String(format: "%.0f", fromHigh))%), AND it's still trading below its own 200-day average (\(String(format: "%.0f", ma))%), so the long-term trend is down, not recovering. A collapsed price that's climbing back wouldn't trip this — only a collapse with no turn does. For option-income ETFs this is by design: they pay gains out as 'dividends,' so the price grinds permanently lower."))
                 }
                 if t.holdingDays >= 365, let ann = t.annualizedPct, let bench = t.benchmarkPct {
                     let benchAnn = (pow(1 + bench / 100, 365.25 / Double(t.holdingDays)) - 1) * 100
                     if ann <= benchAnn - 15 {
-                        reasons.append("dead weight: \(String(format: "%+.1f", ann))%/y over \(t.heldLabel) vs S&P \(String(format: "%+.1f", benchAnn))%/y")
+                        markers.append(.init(
+                            text: "dead weight: \(String(format: "%+.1f", ann))%/y over \(t.heldLabel) vs S&P \(String(format: "%+.1f", benchAnn))%/y",
+                            explanation: "You've held this at least a year, and over that exact window it returned \(String(format: "%+.1f", ann))% per year while the S&P 500 did \(String(format: "%+.1f", benchAnn))% per year — a gap of \(String(format: "%.0f", benchAnn - ann)) points annually. The same money in a plain index fund would have grown faster with less single-name risk. 'Dead weight' = it's costing you the index's return to hold."))
                     }
                 }
                 if t.totalReturnPct <= -60 {
-                    reasons.append("thesis failed: \(String(format: "%.0f", t.totalReturnPct))% since buying")
+                    markers.append(.init(
+                        text: "thesis failed: \(String(format: "%.0f", t.totalReturnPct))% since buying",
+                        explanation: "Down \(String(format: "%.0f", t.totalReturnPct))% from your cost basis. Whatever reason you bought it for, the market has moved decisively against that idea. A loss this deep needs a +\(String(format: "%.0f", 100 / (1 + t.totalReturnPct / 100) - 100))% gain just to break even — the arithmetic of holding losers is brutal and asymmetric."))
                 }
             }
             if q.price < 1 {
-                reasons.append("penny territory: trading at \(String(format: "%.4f", q.price)) \(q.currency)")
+                markers.append(.init(
+                    text: "penny territory: trading at \(String(format: "%.4f", q.price)) \(q.currency)",
+                    explanation: "Trades under $1 (\(String(format: "%.4f", q.price)) \(q.currency)). Sub-$1 names have wide bid-ask spreads (you lose several percent just entering and exiting), thin liquidity, and are prone to promotion-and-dump cycles. 'Trends' here are usually spreads and noise, not signal."))
             }
 
-            let call: PositionVerdict.Call = reasons.count >= 2 ? .exit
-                : reasons.count == 1 ? .review : .hold
+            let call: PositionVerdict.Call = markers.count >= 2 ? .exit
+                : markers.count == 1 ? .review : .hold
             out.append(PositionVerdict(symbol: h.symbol, call: call,
-                                       reasons: reasons, valueAtStake: value))
+                                       markers: markers, valueAtStake: value))
         }
         return out.sorted {
             if $0.call != $1.call { return rank($0.call) < rank($1.call) }

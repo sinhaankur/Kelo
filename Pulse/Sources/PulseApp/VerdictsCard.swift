@@ -1,6 +1,36 @@
 import SwiftUI
 import PulseKit
 
+/// A single decay marker with a tappable "why". The plain line stays inline;
+/// the (i) opens a popover with the exact rule, threshold, and reasoning —
+/// so no label is ever a mystery.
+struct MarkerChip: View {
+    let marker: PositionVerdict.Marker
+    @State private var showWhy = false
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(marker.text)
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                showWhy.toggle()
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .help("Why this flag fired")
+            .popover(isPresented: $showWhy, arrowEdge: .trailing) {
+                Text(marker.explanation)
+                    .font(.system(size: 12))
+                    .frame(width: 320, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(14)
+            }
+        }
+    }
+}
+
 /// A committed call for every position — EXIT CANDIDATE / REVIEW / HOLD —
 /// with the specific decay markers that fired. Direction without ambiguity,
 /// grounded only in what is observably true, never in price prediction.
@@ -68,7 +98,7 @@ struct VerdictsCard: View {
     }
 
     private func verdictRow(_ v: PositionVerdict, color: Color) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Button {
                 model.outlookTarget = AppModel.OutlookTarget(symbol: v.symbol)
             } label: {
@@ -82,9 +112,13 @@ struct VerdictsCard: View {
             }
             .buttonStyle(.plain)
             .frame(minWidth: 86, alignment: .leading)
-            Text(v.reasons.joined(separator: " · "))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            // Each marker is its own info chip — tap the (i) for the exact
+            // rule and why it matters.
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(v.markers.indices, id: \.self) { i in
+                    MarkerChip(marker: v.markers[i])
+                }
+            }
             Spacer()
             Text(usd(v.valueAtStake))
                 .font(.system(size: 10.5, design: .monospaced))
@@ -93,6 +127,10 @@ struct VerdictsCard: View {
     }
 
     private func summaryTile(_ label: String, _ count: String, _ value: String, _ color: Color) -> some View {
+        summaryTileImpl(label, count, value, color)
+    }
+
+    private func summaryTileImpl(_ label: String, _ count: String, _ value: String, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.system(size: 8.5, weight: .medium, design: .monospaced))
                 .tracking(1).foregroundStyle(.tertiary)

@@ -22,6 +22,39 @@ public struct StockOutlook {
         public var bearish: Int { sell + strongSell }
     }
 
+    /// Company fundamentals — the "why is it doing badly" layer that a price
+    /// chart can't answer: is the business shrinking, unprofitable, or in
+    /// debt? Reported as facts, not judgment.
+    public struct Fundamentals {
+        public let name: String?
+        public let industry: String?
+        public let peRatio: Double?
+        public let profitMarginPct: Double?
+        public let revenueGrowthPct: Double?     // TTM YoY
+        public let debtToEquity: Double?
+        public let week52HighGapPct: Double?
+
+        /// Plain-language read of the health signals present.
+        public var healthNotes: [String] {
+            var n: [String] = []
+            if let m = profitMarginPct {
+                n.append(m < 0 ? "unprofitable: net margin \(String(format: "%.1f", m))% — it loses money on every dollar of sales"
+                               : "profitable: net margin \(String(format: "%.1f", m))%")
+            }
+            if let g = revenueGrowthPct {
+                n.append(g < 0 ? "shrinking: revenue \(String(format: "%.1f", g))% year-over-year — the business is contracting"
+                               : "growing: revenue +\(String(format: "%.1f", g))% year-over-year")
+            }
+            if let d = debtToEquity, d > 2 {
+                n.append("heavy debt: debt-to-equity \(String(format: "%.1f", d)) — leveraged, fragile if rates or sales turn")
+            }
+            if let pe = peRatio, pe > 40 {
+                n.append("priced for perfection: P/E \(String(format: "%.0f", pe)) — the market expects big growth; any miss gets punished")
+            }
+            return n
+        }
+    }
+
     public let symbol: String
     public let price: Double
     /// Quote currency of `price` (from Yahoo meta).
@@ -47,6 +80,7 @@ public struct StockOutlook {
     /// Caveat baked into the UI: a soaring yield is often a falling price.
     public let ttmDividendYieldPct: Double?
     public let recommendations: AnalystRecs?
+    public let fundamentals: Fundamentals?
     public let news: [GlobalSentiment.Headline]
 }
 
@@ -58,6 +92,7 @@ public enum OutlookService {
         async let recsTask = fetchRecommendations(symbol: symbol, key: finnhubKey)
         async let newsTask = SentimentService.companyNews(symbol: symbol, key: finnhubKey, limit: 3)
         async let divTask = QuoteService.trailingDividendYieldPct(symbol: symbol)
+        async let fundTask = fundamentals(symbol: symbol, key: finnhubKey)
 
         let hist = await histTask
         guard let quote = await quoteTask, hist.count >= 2 else { return nil }
@@ -81,6 +116,7 @@ public enum OutlookService {
                             maxDrawdown1yPct: s.drawdown,
                             ttmDividendYieldPct: await divTask,
                             recommendations: await recsTask,
+                            fundamentals: await fundTask,
                             news: await newsTask)
     }
 
@@ -151,6 +187,45 @@ public enum OutlookService {
             if peak > 0 { drawdown = min(drawdown, (v - peak) / peak * 100) }
         }
         return (ret30d, ret1y, high, low, fromHigh, vol, drawdown)
+    }
+
+    public static func fundamentals(symbol: String, key: String?) async -> StockOutlook.Fundamentals? {
+        guard let key, !key.isEmpty, SentimentService.isEquitySymbol(symbol) else { return nil }
+        // Profile + metrics are two Finnhub calls.
+        struct Profile: Decodable { let name: String?; let finnhubIndustry: String? }
+        struct Metrics: Decodable {
+            struct M: Decodable {
+                let peBasicExclExtraTTM: Double?
+                let netProfitMarginTTM: Double?
+                let revenueGrowthTTMYoy: Double?
+                let totalDebtToEquityQuarterly: Double?
+            }
+            let metric: M?
+        }
+        func url(_ path: String) -> URL? {
+            URL(string: "https://finnhub.io/api/v1/\(path)&token=\(key)")
+        }
+        async let profileData = fetchJSON(Profile.self, url("stock/profile2?symbol=\(symbol)"))
+        async let metricsData = fetchJSON(Metrics.self, url("stock/metric?symbol=\(symbol)&metric=all"))
+        let p = await profileData
+        let m = await metricsData?.metric
+        guard p != nil || m != nil else { return nil }
+        return StockOutlook.Fundamentals(
+            name: p?.name, industry: p?.finnhubIndustry,
+            peRatio: m?.peBasicExclExtraTTM,
+            profitMarginPct: m?.netProfitMarginTTM,
+            revenueGrowthPct: m?.revenueGrowthTTMYoy,
+            debtToEquity: m?.totalDebtToEquityQuarterly,
+            week52HighGapPct: nil)
+    }
+
+    private static func fetchJSON<T: Decodable>(_ type: T.Type, _ url: URL?) async -> T? {
+        guard let url else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
     }
 
     /// Real analyst recommendation counts (Finnhub, free tier) — what the

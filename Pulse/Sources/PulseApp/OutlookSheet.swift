@@ -87,6 +87,31 @@ struct OutlookSheet: View {
                     }
                     Spacer()
                 }
+                // Why the company itself is doing badly (or well) — the
+                // business facts a price chart can't show.
+                if let f = o.fundamentals, !f.healthNotes.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("WHY THE BUSINESS \(businessDirection(f)) — fundamentals (Finnhub)")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .tracking(1).foregroundStyle(.tertiary)
+                        ForEach(f.healthNotes.indices, id: \.self) { i in
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Image(systemName: noteIsBad(f.healthNotes[i]) ? "arrow.down.right.circle" : "arrow.up.right.circle")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(noteIsBad(f.healthNotes[i]) ? Color.red : Color.green)
+                                Text(f.healthNotes[i])
+                                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                            }
+                        }
+                        if let industry = f.industry {
+                            Text("industry: \(industry)")
+                                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                        }
+                    }
+                } else if o.fundamentals == nil, model.config.finnhubApiKey != nil {
+                    Text("no company fundamentals for this ticker (ETFs, crypto and some listings have none) — the chart signals above are the read")
+                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                }
                 if let r = o.recommendations, r.total > 0 {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("ANALYSTS (\(r.period) · Finnhub · \(r.total) covering)")
@@ -170,6 +195,7 @@ struct OutlookSheet: View {
         let recs = o.recommendations.map {
             "analysts (\($0.period)): \($0.bullish) buy, \($0.hold) hold, \($0.bearish) sell of \($0.total)"
         } ?? "no analyst data"
+        let fundamentals = o.fundamentals?.healthNotes.joined(separator: "; ") ?? "no company fundamentals"
         let system = """
         You are a careful market analysis assistant running fully locally. You CANNOT predict \
         prices and must say so if asked. Using ONLY the provided real numbers, write: \
@@ -186,6 +212,7 @@ struct OutlookSheet: View {
         vs 52w high \(o.pctFromHigh.map(pctLabel) ?? "?") · vs 50dma \(o.vsMa50Pct.map(pctLabel) ?? "?") · vs 200dma \(o.vsMa200Pct.map(pctLabel) ?? "?") · RSI14 \(o.rsi14.map { String(format: "%.0f", $0) } ?? "?")
         realized vol \(o.annualVolPct.map { String(format: "%.0f%%/y", $0) } ?? "?") · max fall 1y \(o.maxDrawdown1yPct.map(pctLabel) ?? "?") · TTM dividend yield \(o.ttmDividendYieldPct.map { String(format: "%.2f%%", $0) } ?? "none paid")
         \(recs)
+        COMPANY FUNDAMENTALS: \(fundamentals)
         GLOBAL SENTIMENT: \(sentiment)
         NEWS:
         \(o.news.map { "- [\($0.source)] \($0.title)" }.joined(separator: "\n"))
@@ -207,6 +234,16 @@ struct OutlookSheet: View {
     }
 
     private func pctLabel(_ v: Double) -> String { String(format: "%+.1f%%", v) }
+
+    private func businessDirection(_ f: StockOutlook.Fundamentals) -> String {
+        let bad = f.healthNotes.filter(noteIsBad).count
+        return bad > f.healthNotes.count - bad ? "IS STRUGGLING" : "LOOKS"
+    }
+
+    private func noteIsBad(_ note: String) -> Bool {
+        ["unprofitable", "shrinking", "heavy debt", "priced for perfection"]
+            .contains { note.hasPrefix($0) }
+    }
 
     private func tile(_ label: String, _ value: String, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
