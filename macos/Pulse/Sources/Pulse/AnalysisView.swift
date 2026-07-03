@@ -1,0 +1,189 @@
+import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
+
+/// Screenshot → on-device OCR → local LLM analysis, grounded in REAL fetched
+/// market data (indices + the user's portfolio) so the model interprets
+/// numbers instead of inventing them. Private end to end.
+@MainActor
+final class AnalysisModel: ObservableObject {
+    @Published var image: NSImage? = nil
+    @Published var status: String = ""
+    @Published var running = false
+    @Published var output: String = ""
+    @AppStorage("llmEndpoint") var endpoint = "http://localhost:11434"
+    @AppStorage("llmModel") var model = "qwen2.5:7b"
+
+    func run(portfolio: AppModel) {
+        guard let image, !running else { return }
+        running = true
+        output = ""
+        status = "reading screenshot (on-device OCR)…"
+        Task {
+            let ocr = await OcrService.recognizeText(in: image)
+            await MainActor.run { self.status = "fetching real market context…" }
+
+            // Ground truth: index stats (30d) + the user's live portfolio.
+            let indexQuotes = await QuoteService.fetchAll(symbols: ["^GSPC", "^IXIC", "^DJI"])
+            let names = ["^GSPC": "S&P 500", "^IXIC": "Nasdaq", "^DJI": "Dow"]
+            let indexContext = indexQuotes.values
+                .sorted { $0.symbol < $1.symbol }
+                .map { q -> String in
+                    let lo = q.closes.min() ?? q.price
+                    let hi = q.closes.max() ?? q.price
+                    let mo = q.closes.first.map { f in (q.price - f) / f * 100 } ?? 0
+                    return "\(names[q.symbol] ?? q.symbol): \(Int(q.price)) (today \(String(format: "%+.2f", q.dayChangePct))%, 30d \(String(format: "%+.1f", mo))%, 30d range \(Int(lo))–\(Int(hi)))"
+                }
+                .joined(separator: "\n")
+
+            let holdings = portfolio.portfolio.holdings.map { h -> String in
+                let q = portfolio.quotes[h.symbol]
+                let pl = portfolio.holdingValue(h) - h.costBasis * h.quantity
+                return "\(h.symbol): qty \(num(h.quantity)), cost \(usd(h.costBasis)), now \(q.map { usd($0.price) } ?? "?"), P/L \(usd(pl))"
+            }.joined(separator: "\n")
+
+            let system = """
+            You are a careful market analysis assistant running fully locally on the user's Mac. \
+            Use ONLY the data provided — the OCR text of the user's screenshot, real index statistics, \
+            and their portfolio. Structure your answer as: \
+            1) WHAT THE SCREENSHOT SHOWS (tickers, prices, moves you can identify from the OCR). \
+            2) MARKET CONTEXT (interpret the provided index stats; do not invent history you weren't given). \
+            3) RIGHT / WRONG (what looks healthy vs concerning in their portfolio, referencing the numbers). \
+            4) WORTH CONSIDERING (2–3 observations framed as things to look into — never directives to buy or sell). \
+            If the OCR text is too garbled to identify anything, say so plainly. \
+            End with exactly: "Not financial advice."
+            """
+            let user = """
+            === SCREENSHOT OCR ===
+            \(ocr.isEmpty ? "(no text recognized)" : ocr)
+
+            === REAL INDEX DATA (fetched now) ===
+            \(indexContext)
+
+            === MY PORTFOLIO (live) ===
+            \(holdings)
+            """
+
+            await MainActor.run { self.status = "analyzing with \(self.model) (local)…" }
+            do {
+                let text = try await LlmService.analyze(system: system, user: user,
+                                                        endpoint: endpoint, model: model)
+                await MainActor.run { self.output = text; self.status = ""; self.running = false }
+            } catch {
+                await MainActor.run {
+                    self.output = ""
+                    self.status = "⚠ \(error.localizedDescription)"
+                    self.running = false
+                }
+            }
+        }
+    }
+}
+
+struct AnalysisCard: View {
+    @ObservedObject var app: AppModel
+    @StateObject private var model = AnalysisModel()
+    @State private var dropActive = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("ANALYZE")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(2).foregroundStyle(.secondary)
+                Spacer()
+                TextField("endpoint", text: model.$endpoint)
+                    .textFieldStyle(.plain).font(.system(size: 10, design: .monospaced))
+                    .frame(width: 150).multilineTextAlignment(.trailing)
+                    .foregroundStyle(.tertiary)
+                TextField("model", text: model.$model)
+                    .textFieldStyle(.plain).font(.system(size: 10, design: .monospaced))
+                    .frame(width: 90).multilineTextAlignment(.trailing)
+                    .foregroundStyle(.tertiary)
+            }
+
+            HStack(spacing: 12) {
+                dropZone
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Drop or paste a screenshot of stocks — a chart, your broker page, a watchlist.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text("OCR runs on this Mac (Vision). Analysis runs on your local model, grounded in live index + portfolio data. Nothing leaves the machine.")
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    HStack(spacing: 8) {
+                        Button("Paste") { pasteImage() }
+                        Button(model.running ? "Analyzing…" : "Analyze") { model.run(portfolio: app) }
+                            .keyboardShortcut(.return, modifiers: .command)
+                            .disabled(model.image == nil || model.running)
+                    }
+                    if !model.status.isEmpty {
+                        Text(model.status).font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.orange)
+                    }
+                }
+                Spacer()
+            }
+
+            if !model.output.isEmpty {
+                ScrollView {
+                    Text(model.output)
+                        .font(.system(size: 12))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 260)
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.25)))
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.045)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.07)))
+    }
+
+    private var dropZone: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(dropActive ? Color.accentColor : Color.white.opacity(0.15),
+                              style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.03)))
+            if let img = model.image {
+                Image(nsImage: img).resizable().scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 6)).padding(4)
+            } else {
+                VStack(spacing: 4) {
+                    Image(systemName: "photo.badge.plus").font(.system(size: 18))
+                    Text("drop image").font(.system(size: 9, design: .monospaced))
+                }
+                .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(width: 130, height: 84)
+        .onDrop(of: [UTType.image, UTType.fileURL], isTargeted: $dropActive) { providers in
+            loadDrop(providers); return true
+        }
+    }
+
+    private func loadDrop(_ providers: [NSItemProvider]) {
+        for p in providers {
+            if p.canLoadObject(ofClass: NSImage.self) {
+                _ = p.loadObject(ofClass: NSImage.self) { obj, _ in
+                    if let img = obj as? NSImage {
+                        Task { @MainActor in model.image = img }
+                    }
+                }
+                return
+            }
+            p.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+                if let data = item as? Data,
+                   let url = URL(dataRepresentation: data, relativeTo: nil),
+                   let img = NSImage(contentsOf: url) {
+                    Task { @MainActor in model.image = img }
+                }
+            }
+        }
+    }
+
+    private func pasteImage() {
+        if let img = NSImage(pasteboard: .general) { model.image = img }
+    }
+}

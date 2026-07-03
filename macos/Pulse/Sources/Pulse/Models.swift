@@ -64,6 +64,9 @@ struct Quote {
     let symbol: String
     let price: Double
     let previousClose: Double
+    /// ~30 daily closes for the sparkline (oldest → newest).
+    let closes: [Double]
+    var dayChange: Double { price - previousClose }
     var dayChangePct: Double {
         previousClose > 0 ? (price - previousClose) / previousClose * 100 : 0
     }

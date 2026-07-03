@@ -5,7 +5,13 @@ import Foundation
 enum QuoteService {
     struct ChartResponse: Decodable {
         struct Chart: Decodable { let result: [Result]? }
-        struct Result: Decodable { let meta: Meta }
+        struct Result: Decodable {
+            let meta: Meta
+            let timestamp: [Int]?
+            let indicators: Indicators?
+        }
+        struct Indicators: Decodable { let quote: [QuoteBlock]? }
+        struct QuoteBlock: Decodable { let close: [Double?]? }
         struct Meta: Decodable {
             let symbol: String
             let regularMarketPrice: Double?
@@ -19,7 +25,9 @@ enum QuoteService {
         var comps = URLComponents(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(symbol)")!
         comps.queryItems = [
             URLQueryItem(name: "interval", value: "1d"),
-            URLQueryItem(name: "range", value: "1d"),
+            // 1mo of daily closes → the row sparkline; meta still carries the
+            // live price + previous close.
+            URLQueryItem(name: "range", value: "1mo"),
         ]
         var req = URLRequest(url: comps.url!)
         req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
@@ -27,11 +35,29 @@ enum QuoteService {
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let parsed = try? JSONDecoder().decode(ChartResponse.self, from: data),
-              let meta = parsed.chart.result?.first?.meta,
-              let price = meta.regularMarketPrice
+              let result = parsed.chart.result?.first,
+              let price = result.meta.regularMarketPrice
         else { return nil }
-        let prev = meta.chartPreviousClose ?? meta.previousClose ?? price
-        return Quote(symbol: symbol, price: price, previousClose: prev)
+        let meta = result.meta
+        var closes = (result.indicators?.quote?.first?.close ?? []).compactMap { $0 }
+        // Is the series' last bar TODAY's (in-progress) bar? With range=1mo
+        // Yahoo includes it during the session; yesterday's close is then the
+        // second-to-last bar. Compare the last bar's UTC calendar day to now —
+        // works for 24/7 crypto bars (00:00 UTC) and exchange bars alike.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let lastIsToday = (result.timestamp?.last).map {
+            cal.isDate(Date(timeIntervalSince1970: TimeInterval($0)), inSameDayAs: Date())
+        } ?? false
+        let prev: Double
+        if lastIsToday, closes.count >= 2 {
+            prev = closes[closes.count - 2]
+            closes[closes.count - 1] = price // live tail replaces today's partial bar
+        } else {
+            prev = closes.last ?? meta.chartPreviousClose ?? meta.previousClose ?? price
+            closes.append(price)
+        }
+        return Quote(symbol: symbol, price: price, previousClose: prev, closes: closes)
     }
 
     /// Fetch all symbols concurrently; returns whatever succeeded.
