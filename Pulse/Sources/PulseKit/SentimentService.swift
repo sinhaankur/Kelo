@@ -103,6 +103,26 @@ public enum SentimentService {
         return (v, entry.value_classification)
     }
 
+    private struct NewsItem: Decodable {
+        let headline: String
+        let source: String
+        let datetime: Int
+    }
+
+    private static func fetchNews(url: URL?, limit: Int) async -> [GlobalSentiment.Headline] {
+        guard let url else { return [] }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let items = try? JSONDecoder().decode([NewsItem].self, from: data)
+        else { return [] }
+        return items.prefix(limit).map {
+            GlobalSentiment.Headline(title: $0.headline, source: $0.source,
+                                     date: Date(timeIntervalSince1970: TimeInterval($0.datetime)))
+        }
+    }
+
     // Finnhub general market news — requires the user's own key (config.json).
     private static func fetchHeadlines(key: String?) async -> [GlobalSentiment.Headline] {
         guard let key, !key.isEmpty else { return [] }
@@ -111,20 +131,41 @@ public enum SentimentService {
             URLQueryItem(name: "category", value: "general"),
             URLQueryItem(name: "token", value: key),
         ]
-        struct Item: Decodable {
-            let headline: String
-            let source: String
-            let datetime: Int
-        }
-        var req = URLRequest(url: comps.url!)
-        req.timeoutInterval = 10
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let items = try? JSONDecoder().decode([Item].self, from: data)
-        else { return [] }
-        return items.prefix(6).map {
-            GlobalSentiment.Headline(title: $0.headline, source: $0.source,
-                                     date: Date(timeIntervalSince1970: TimeInterval($0.datetime)))
+        return await fetchNews(url: comps.url, limit: 6)
+    }
+
+    /// True for symbols Finnhub's company-news endpoint can answer for —
+    /// plain equities, not crypto pairs ("BTC-USD") or indices ("^GSPC").
+    public static func isEquitySymbol(_ symbol: String) -> Bool {
+        !symbol.contains("-") && !symbol.hasPrefix("^") && !symbol.isEmpty
+    }
+
+    /// Last 7 days of company news for one holding (Finnhub, user's key).
+    public static func companyNews(symbol: String, key: String?,
+                                   limit: Int = 2) async -> [GlobalSentiment.Headline] {
+        guard let key, !key.isEmpty, isEquitySymbol(symbol) else { return [] }
+        let now = Date()
+        var comps = URLComponents(string: "https://finnhub.io/api/v1/company-news")!
+        comps.queryItems = [
+            URLQueryItem(name: "symbol", value: symbol),
+            URLQueryItem(name: "from", value: isoDateString(now.addingTimeInterval(-7 * 86_400))),
+            URLQueryItem(name: "to", value: isoDateString(now)),
+            URLQueryItem(name: "token", value: key),
+        ]
+        return await fetchNews(url: comps.url, limit: limit)
+    }
+
+    /// News for every equity holding, fetched concurrently.
+    public static func holdingsNews(symbols: [String], key: String?)
+        async -> [String: [GlobalSentiment.Headline]] {
+        guard let key, !key.isEmpty else { return [:] }
+        return await withTaskGroup(of: (String, [GlobalSentiment.Headline]).self) { group in
+            for s in Set(symbols.filter(isEquitySymbol)) {
+                group.addTask { (s, await companyNews(symbol: s, key: key)) }
+            }
+            var out: [String: [GlobalSentiment.Headline]] = [:]
+            for await (s, n) in group where !n.isEmpty { out[s] = n }
+            return out
         }
     }
 }

@@ -97,14 +97,19 @@ func render() async {
         print("portfolio.json is empty — add holdings at \(Portfolio.fileURL.path)")
         return
     }
+    let paperTrades = PaperLedger.load()
     let symbols = portfolio.holdings.map(\.symbol) + portfolio.calls.map(\.underlying)
+        + paperTrades.map(\.symbol)
 
     async let quotesTask = QuoteService.fetchAll(symbols: symbols)
     async let chainsTask = OptionsService.fetchAll(underlyings: portfolio.calls.map(\.underlying))
     async let sentimentTask = SentimentService.fetch(finnhubKey: config.finnhubApiKey)
+    async let newsTask = SentimentService.holdingsNews(
+        symbols: portfolio.holdings.map(\.symbol), key: config.finnhubApiKey)
     let quotes = await quotesTask
     let chains = await chainsTask
     let sentiment = await sentimentTask
+    let holdingsNews = await newsTask
     let analysis = await TimelineService.analyze(holdings: portfolio.holdings, quotes: quotes)
     let timelines = analysis.timelines
 
@@ -125,6 +130,13 @@ func render() async {
     }
     let allTime = totalValue - totalCost
     let allTimePct = totalCost > 0 ? allTime / totalCost * 100 : 0
+
+    // Record today's real marks (incl. options) — only when every holding
+    // actually got a quote, so a partial fetch never poisons the record.
+    if !portfolio.holdings.isEmpty,
+       portfolio.holdings.allSatisfy({ quotes[$0.symbol] != nil }) {
+        SnapshotStore.record(holdings: holdingsValue, options: callsValue, cost: totalCost)
+    }
 
     var out: [String] = []
     let stamp = Date().formatted(date: .abbreviated, time: .shortened)
@@ -150,6 +162,11 @@ func render() async {
     }
     if sentiment.headlines.isEmpty && config.finnhubApiKey == nil {
         out.append("  " + Ansi.dim("(add finnhubApiKey to config.json for headlines)"))
+    }
+    for sym in holdingsNews.keys.sorted() {
+        for h in holdingsNews[sym] ?? [] {
+            out.append("  " + Ansi.dim("· [\(sym)] \(h.title)  [\(h.source)]"))
+        }
     }
     out.append("")
 
@@ -234,6 +251,30 @@ func render() async {
         out.append(Ansi.header("RIGHT / WRONG"))
         for (ok, text) in flags {
             out.append("  " + (ok ? Ansi.green("✓") : Ansi.yellow("⚠")) + " " + text)
+        }
+        out.append("")
+    }
+
+    // Paper trades — the calls, scored so far. No real orders, ever.
+    if !paperTrades.isEmpty {
+        let reviews = PaperLedger.review(paperTrades, quotes: quotes,
+                                         benchmark: analysis.benchmark)
+        out.append(Ansi.header("PAPER TRADES") + Ansi.dim("  calls scored against reality"))
+        for r in reviews {
+            var line = "  " + pad("\(r.trade.side) \(r.trade.symbol)", 12)
+            line += pad(r.trade.date, 12)
+            line += pad("in " + usd(r.trade.entryPrice), 13, right: true)
+            line += pad(r.currentPrice.map { "now " + usd($0) } ?? "now …", 14, right: true)
+            line += pad(r.movePct.map { signed($0) } ?? "—", 10, right: true)
+            line += pad(r.benchmarkPct.map { Ansi.dim("S&P " + String(format: "%+.2f%%", $0)) } ?? "", 14, right: true)
+            if let right = r.callRightSoFar {
+                line += "  " + (right ? Ansi.green("✓ right so far") : Ansi.red("✗ wrong so far"))
+            }
+            out.append(line)
+        }
+        let scored = reviews.compactMap(\.callRightSoFar)
+        if !scored.isEmpty {
+            out.append("  " + Ansi.dim("direction right: \(scored.filter { $0 }.count)/\(scored.count) — small sample, not an edge"))
         }
         out.append("")
     }

@@ -78,6 +78,14 @@ struct TradeDraftCard: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(d.summary, forType: .string)
                             }
+                            Button("Log paper trade") {
+                                model.logPaperTrade(PaperTrade(
+                                    date: isoDateString(Date()), side: d.side,
+                                    symbol: d.symbol, shares: d.shares,
+                                    entryPrice: d.price, amount: d.amount))
+                                status = "logged as a paper trade — scored in PAPER TRADES below, no real order placed"
+                                draft = nil
+                            }
                             Text("quote is delayed — confirm price in the broker before placing")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.tertiary)

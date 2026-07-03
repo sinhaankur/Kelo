@@ -26,6 +26,11 @@ struct GrowthCard: View {
                     }
                     GrowthChart(values: h.values, costs: h.costs)
                         .frame(height: 90)
+                    if let latest = model.snapshots.last {
+                        Text("recorded incl. options: \(model.snapshots.count) day\(model.snapshots.count == 1 ? "" : "s") · latest \(usd(latest.total)) — real marks logged daily from now on")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             } else {
                 Text("reconstructing account history from invested dates…")

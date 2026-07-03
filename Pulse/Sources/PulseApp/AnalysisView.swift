@@ -66,6 +66,11 @@ final class AnalysisModel: ObservableObject {
                 for h in s.headlines.prefix(5) {
                     lines.append("headline [\(h.source)]: \(h.title)")
                 }
+                for sym in portfolio.holdingsNews.keys.sorted() {
+                    for h in portfolio.holdingsNews[sym] ?? [] {
+                        lines.append("holding news [\(sym), \(h.source)]: \(h.title)")
+                    }
+                }
                 return lines.joined(separator: "\n")
             }
 

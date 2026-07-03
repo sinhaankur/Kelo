@@ -31,6 +31,14 @@ config.json — share math, post-trade concentration, realized P/L — and
 copies the summary for your broker. Pulse NEVER places orders; execution
 stays in the brokerage behind its own confirmations.
 
+Learning loop: "Log paper trade" turns a draft into a scored call
+(paper-trades.json, gitignored) — entry vs now, vs the S&P over the same
+window, direction verdict so far, in the app and pulse-tui. Daily account
+values (incl. real option marks) are recorded to snapshots.json on each
+refresh, so the growth record is real going forward. Per-holding company
+news (Finnhub, 7 days) shows for equity holdings and grounds the local
+analysis.
+
 Appearance follows the clock (light 07–19, dark otherwise) with a manual
 override in the app header. A menu-bar pulse shows the day move; dollar
 figures appear only while the app is unlocked.

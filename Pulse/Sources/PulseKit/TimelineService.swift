@@ -39,6 +39,9 @@ public struct PortfolioHistory {
 public struct PortfolioAnalysis {
     public let timelines: [String: PositionTimeline]
     public let history: PortfolioHistory?
+    /// The fetched S&P 500 daily series — reused by callers for windowed
+    /// comparisons (paper-trade reviews) without a second fetch.
+    public let benchmark: [QuoteService.HistoryPoint]
 }
 
 public enum TimelineService {
@@ -47,7 +50,9 @@ public enum TimelineService {
     /// live prices when available; otherwise the last close stands in.
     public static func analyze(holdings: [Holding],
                                quotes: [String: Quote]) async -> PortfolioAnalysis {
-        guard !holdings.isEmpty else { return PortfolioAnalysis(timelines: [:], history: nil) }
+        guard !holdings.isEmpty else {
+            return PortfolioAnalysis(timelines: [:], history: nil, benchmark: [])
+        }
         async let benchTask = QuoteService.fetchHistory(symbol: "^GSPC")
         let histories = await withTaskGroup(of: (String, [QuoteService.HistoryPoint]).self) { group in
             for s in Set(holdings.map(\.symbol)) {
@@ -69,7 +74,7 @@ public enum TimelineService {
         }
         let growth = portfolioHistory(holdings: holdings, timelines: result,
                                       histories: histories, quotes: quotes)
-        return PortfolioAnalysis(timelines: result, history: growth)
+        return PortfolioAnalysis(timelines: result, history: growth, benchmark: bench)
     }
 
     public static func timelines(for holdings: [Holding],

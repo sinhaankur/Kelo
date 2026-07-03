@@ -10,6 +10,10 @@ final class AppModel: ObservableObject {
     @Published var timelines: [String: PositionTimeline] = [:]
     @Published var portfolioHistory: PortfolioHistory? = nil
     @Published var sentiment: GlobalSentiment? = nil
+    @Published var holdingsNews: [String: [GlobalSentiment.Headline]] = [:]
+    @Published var paperTrades: [PaperTrade] = []
+    @Published var paperReviews: [PaperReview] = []
+    @Published var snapshots: [DailySnapshot] = []
     @Published var lastRefresh: Date? = nil
     @Published var refreshing = false
     /// Minute tick — re-evaluates the auto theme even when nothing else moves.
@@ -19,6 +23,7 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
     private var timelineSignature = ""
     private var lastSentimentFetch: Date? = nil
+    private var benchmarkHistory: [QuoteService.HistoryPoint] = []
 
     func start() {
         guard timer == nil else { return }
@@ -33,7 +38,11 @@ final class AppModel: ObservableObject {
 
     func refresh() {
         portfolio = Portfolio.load() // re-read so edits to the JSON show up
+        paperTrades = PaperLedger.load()
+        snapshots = SnapshotStore.load()
+        // Paper-trade symbols get quotes too, even when not held for real.
         let symbols = portfolio.holdings.map(\.symbol) + portfolio.calls.map(\.underlying)
+            + paperTrades.map(\.symbol)
         guard !symbols.isEmpty else { return }
         refreshing = true
         let callUnderlyings = portfolio.calls.map(\.underlying)
@@ -46,10 +55,39 @@ final class AppModel: ObservableObject {
                 self.optionQuotes = oq
                 self.lastRefresh = Date()
                 self.refreshing = false
+                self.recordSnapshot()
+                self.recomputePaperReviews()
             }
             await self.refreshTimelines(quotes: q)
         }
         refreshSentiment()
+    }
+
+    /// One recorded value per day — only when every holding actually has a
+    /// quote, so a partial fetch never poisons the record.
+    private func recordSnapshot() {
+        guard !portfolio.holdings.isEmpty,
+              portfolio.holdings.allSatisfy({ quotes[$0.symbol] != nil }) else { return }
+        let holdingsValue = portfolio.holdings.reduce(0.0) { $0 + holdingValue($1) }
+        let optionsValue = portfolio.calls.reduce(0.0) { $0 + (callValue($1) ?? 0) }
+        snapshots = SnapshotStore.record(holdings: holdingsValue, options: optionsValue,
+                                         cost: totalCost)
+    }
+
+    private func recomputePaperReviews() {
+        paperReviews = PaperLedger.review(paperTrades, quotes: quotes,
+                                          benchmark: benchmarkHistory)
+    }
+
+    func logPaperTrade(_ trade: PaperTrade) {
+        PaperLedger.append(trade)
+        refresh() // pick up the new symbol's quote + rescore
+    }
+
+    func deletePaperTrade(id: UUID) {
+        PaperLedger.remove(id: id)
+        paperTrades = PaperLedger.load()
+        recomputePaperReviews()
     }
 
     /// Timelines need 10y of history per symbol — fetch only when the
@@ -62,17 +100,25 @@ final class AppModel: ObservableObject {
         let analysis = await TimelineService.analyze(holdings: portfolio.holdings, quotes: quotes)
         self.timelines = analysis.timelines
         self.portfolioHistory = analysis.history
+        self.benchmarkHistory = analysis.benchmark
         self.timelineSignature = sig
+        self.recomputePaperReviews()
     }
 
-    /// Sentiment moves slowly — refetch at most every 5 minutes.
+    /// Sentiment + per-holding news move slowly — refetch at most every 5 min.
     func refreshSentiment() {
         if let t = lastSentimentFetch, Date().timeIntervalSince(t) < 300 { return }
         lastSentimentFetch = Date()
         let key = config.finnhubApiKey
+        let holdingSymbols = portfolio.holdings.map(\.symbol)
         Task {
-            let s = await SentimentService.fetch(finnhubKey: key)
-            await MainActor.run { self.sentiment = s }
+            async let s = SentimentService.fetch(finnhubKey: key)
+            async let news = SentimentService.holdingsNews(symbols: holdingSymbols, key: key)
+            let (sentiment, holdingsNews) = await (s, news)
+            await MainActor.run {
+                self.sentiment = sentiment
+                self.holdingsNews = holdingsNews
+            }
         }
     }
 
@@ -138,8 +184,10 @@ struct ContentView: View {
                     StatsCard(model: model)
                     HoldingsCard(model: model)
                     TimelineCard(model: model)
+                    if !model.holdingsNews.isEmpty { HoldingsNewsCard(model: model) }
                     if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
                     TradeDraftCard(model: model)
+                    if !model.paperTrades.isEmpty { PaperLedgerCard(model: model) }
                     AnalysisCard(app: model)
                     footer
                 }
