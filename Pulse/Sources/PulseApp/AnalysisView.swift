@@ -16,12 +16,19 @@ final class AnalysisModel: ObservableObject {
     @AppStorage("llmModel") var model = "qwen2.5:7b"
 
     func run(portfolio: AppModel) {
-        guard let image, !running else { return }
+        guard !running else { return }
         running = true
         output = ""
-        status = "reading screenshot (on-device OCR)…"
+        // A screenshot is optional context, not a gate — analysis of the
+        // live portfolio + market numbers must work on its own.
+        status = image != nil ? "reading screenshot (on-device OCR)…" : "fetching real market context…"
         Task {
-            let ocr = await OcrService.recognizeText(in: image)
+            let ocr: String
+            if let image {
+                ocr = await OcrService.recognizeText(in: image)
+            } else {
+                ocr = ""
+            }
             await MainActor.run { self.status = "fetching real market context…" }
 
             // Ground truth: index stats (30d) + the user's live portfolio.
@@ -81,10 +88,10 @@ final class AnalysisModel: ObservableObject {
 
             let system = """
             You are a careful market analysis assistant running fully locally on the user's Mac. \
-            Use ONLY the data provided — the OCR text of the user's screenshot, real index statistics, \
-            and their portfolio. Structure your answer as: \
-            1) WHAT THE SCREENSHOT SHOWS (tickers, prices, moves you can identify from the OCR). \
-            2) MARKET CONTEXT (interpret the provided index stats; do not invent history you weren't given). \
+            Use ONLY the data provided — real index statistics, global sentiment, position timelines, \
+            the user's portfolio, and (when present) OCR text of a screenshot. Structure your answer as: \
+            1) WHAT THE SCREENSHOT SHOWS (only if screenshot text was provided; otherwise skip this section). \
+            2) MARKET CONTEXT (interpret the provided index/sentiment/world numbers; do not invent history you weren't given). \
             3) RIGHT / WRONG (what looks healthy vs concerning in their portfolio, referencing the numbers). \
             4) WORTH CONSIDERING (2–3 observations framed as things to look into — never directives to buy or sell). \
             If the OCR text is too garbled to identify anything, say so plainly. \
@@ -92,7 +99,7 @@ final class AnalysisModel: ObservableObject {
             """
             let user = """
             === SCREENSHOT OCR ===
-            \(ocr.isEmpty ? "(no text recognized)" : ocr)
+            \(ocr.isEmpty ? "(no screenshot provided)" : ocr)
 
             === REAL INDEX DATA (fetched now) ===
             \(indexContext)
@@ -148,9 +155,9 @@ struct AnalysisCard: View {
             HStack(spacing: 12) {
                 dropZone
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Scan the screen (⇧⌘S — drag over stocks in your browser), or drop/paste a screenshot.")
+                    Text("Analyze your live numbers as-is — or add context: scan the screen (⇧⌘S over stocks in your browser) or drop/paste a screenshot.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
-                    Text("OCR runs on this Mac (Vision). Analysis runs on your local model, grounded in live index + portfolio data. Nothing leaves the machine.")
+                    Text("OCR runs on this Mac (Vision). Analysis runs on your local model, grounded in live portfolio, sentiment, world gauges and timelines. Nothing leaves the machine.")
                         .font(.system(size: 10)).foregroundStyle(.tertiary)
                     HStack(spacing: 8) {
                         Button("Scan screen") { scanScreen() }
@@ -159,7 +166,7 @@ struct AnalysisCard: View {
                         Button("Paste") { pasteImage() }
                         Button(model.running ? "Analyzing…" : "Analyze") { model.run(portfolio: app) }
                             .keyboardShortcut(.return, modifiers: .command)
-                            .disabled(model.image == nil || model.running)
+                            .disabled(model.running)
                     }
                     if !model.status.isEmpty {
                         Text(model.status).font(.system(size: 10, design: .monospaced))

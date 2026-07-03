@@ -178,26 +178,30 @@ final class AppModel: ObservableObject {
 
 // MARK: - Root
 
+// IA: one subject per section. Overview = my account at a glance;
+// Market = everything external (sentiment, world gauges, news);
+// Positions = per-holding depth; Analysis = all judgment (deterministic
+// flags first, local model second); Trade = drafting + paper scoring.
 enum AppSection: String, CaseIterable, Identifiable {
-    case overview, positions, news, trade, analyze
+    case overview, market, positions, analysis, trade
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .overview: return "Overview"
+        case .market: return "Market"
         case .positions: return "Positions"
-        case .news: return "News"
+        case .analysis: return "Analysis"
         case .trade: return "Trade"
-        case .analyze: return "Analyze"
         }
     }
     var icon: String {
         switch self {
         case .overview: return "waveform.path.ecg"
+        case .market: return "globe"
         case .positions: return "chart.bar.xaxis"
-        case .news: return "newspaper"
+        case .analysis: return "text.magnifyingglass"
         case .trade: return "arrow.left.arrow.right"
-        case .analyze: return "text.magnifyingglass"
         }
     }
 }
@@ -237,15 +241,13 @@ struct ContentView: View {
                         HeaderCard(model: model, lock: lock)
                         switch section ?? .overview {
                         case .overview:
-                            SentimentCard(model: model)
+                            // My account in 5 seconds; market detail lives in
+                            // Market — only its one-line summary appears here.
+                            MarketStrip(model: model)
                             GrowthCard(model: model)
                             AllocationCard(model: model)
-                            StatsCard(model: model)
-                        case .positions:
-                            HoldingsCard(model: model)
-                            TimelineCard(model: model)
-                            if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
-                        case .news:
+                        case .market:
+                            SentimentCard(model: model)
                             if model.holdingsNews.isEmpty {
                                 Card(title: "HOLDINGS NEWS") {
                                     Text(model.config.finnhubApiKey == nil
@@ -257,6 +259,13 @@ struct ContentView: View {
                             } else {
                                 HoldingsNewsCard(model: model)
                             }
+                        case .positions:
+                            HoldingsCard(model: model)
+                            TimelineCard(model: model)
+                            if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
+                        case .analysis:
+                            StatsCard(model: model)
+                            AnalysisCard(app: model)
                         case .trade:
                             TradeDraftCard(model: model)
                             if model.paperTrades.isEmpty {
@@ -268,8 +277,6 @@ struct ContentView: View {
                             } else {
                                 PaperLedgerCard(model: model)
                             }
-                        case .analyze:
-                            AnalysisCard(app: model)
                         }
                         footer
                     }
@@ -305,6 +312,24 @@ struct ContentView: View {
 }
 
 // MARK: - Cards
+
+/// One-line market pulse on the Overview — the detail lives in Market.
+private struct MarketStrip: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        Card(title: "MARKET", trailing: "detail in the Market section") {
+            if let s = model.sentiment {
+                Text(s.summary)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("fetching market context…")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+}
 
 struct Card<Content: View>: View {
     let title: String
