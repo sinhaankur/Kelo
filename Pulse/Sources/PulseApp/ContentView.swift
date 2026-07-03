@@ -162,6 +162,24 @@ final class AppModel: ObservableObject {
                                            timelines: timelines, fxRates: fxRates)
         verdicts = ReviewService.verdicts(holdings: portfolio.holdings, quotes: quotes,
                                           timelines: timelines, fxRates: fxRates)
+        runAgentIfEnabled()
+    }
+
+    /// The Pulse Agent: paper-only, once a day at most, scorecard in the
+    /// open. Toggleable from the Agent section.
+    private func runAgentIfEnabled() {
+        let enabled = UserDefaults.standard.object(forKey: "agentEnabled") as? Bool ?? true
+        guard enabled, !timelines.isEmpty, !verdicts.isEmpty else { return }
+        let ideas = ReviewService.ideas(holdings: portfolio.holdings, quotes: quotes,
+                                        timelines: timelines, verdicts: verdicts,
+                                        fxRates: fxRates)
+        if let action = AgentService.runCycle(ideas: ideas, quotes: quotes,
+                                              fxRates: fxRates, openCalls: paperTrades) {
+            PaperLedger.append(action.trade)
+            paperTrades = PaperLedger.load()
+            paperReviews = PaperLedger.review(paperTrades, quotes: quotes,
+                                              benchmark: benchmarkHistory)
+        }
     }
 
     func logPaperTrade(_ trade: PaperTrade) {
@@ -283,7 +301,7 @@ final class AppModel: ObservableObject {
 // Positions = per-holding depth; Analysis = all judgment (deterministic
 // flags first, local model second); Trade = drafting + paper scoring.
 enum AppSection: String, CaseIterable, Identifiable {
-    case overview, market, positions, analysis, trade
+    case overview, market, positions, analysis, trade, agent
     var id: String { rawValue }
 
     var title: String {
@@ -293,6 +311,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .positions: return "Positions"
         case .analysis: return "Analysis"
         case .trade: return "Trade"
+        case .agent: return "Agent"
         }
     }
     var icon: String {
@@ -302,6 +321,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .positions: return "chart.bar.xaxis"
         case .analysis: return "text.magnifyingglass"
         case .trade: return "arrow.left.arrow.right"
+        case .agent: return "sparkles"
         }
     }
 }
@@ -371,6 +391,9 @@ struct ContentView: View {
                             LookupCard(model: model)
                             StatsCard(model: model)
                             AnalysisCard(app: model)
+                        case .agent:
+                            AgentCard(model: model)
+                            IdeasCard(model: model)
                         case .trade:
                             IdeasCard(model: model)
                             TradeDraftCard(model: model)

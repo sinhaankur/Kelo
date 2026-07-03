@@ -7,3 +7,4 @@ config.json
 snapshots.json
 paper-trades.json
 watchlist.json
+agent-state.json

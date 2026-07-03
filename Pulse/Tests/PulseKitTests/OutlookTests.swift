@@ -108,6 +108,61 @@ final class VerdictTests: XCTestCase {
     }
 }
 
+final class AgentTests: XCTestCase {
+    private func tmpState() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("pulse-test-agent-\(UUID()).json")
+    }
+
+    private let ideas: (longs: [TradeIdea], shorts: [TradeIdea]) = (
+        longs: [TradeIdea(direction: "LONG", symbol: "UP", thesis: "uptrend")],
+        shorts: [TradeIdea(direction: "SHORT (paper)", symbol: "DOWN", thesis: "broken")]
+    )
+    private let quotes = [
+        "UP": Quote(symbol: "UP", price: 100, previousClose: 99, closes: []),
+        "DOWN": Quote(symbol: "DOWN", price: 50, previousClose: 51, closes: []),
+    ]
+
+    func testAgentCallsTheTopLongOnceAndOnlyOncePerDay() {
+        let url = tmpState(); defer { try? FileManager.default.removeItem(at: url) }
+        let first = AgentService.runCycle(ideas: ideas, quotes: quotes, fxRates: [:],
+                                          openCalls: [], today: "2026-07-03", stateURL: url)
+        XCTAssertEqual(first?.trade.symbol, "UP")
+        XCTAssertEqual(first?.trade.side, "BUY")
+        XCTAssertEqual(first?.trade.source, "agent")
+        XCTAssertEqual(first!.trade.shares, 2.5, accuracy: 0.001) // 250 / 100
+        // Same day → discipline: no second call.
+        let second = AgentService.runCycle(ideas: ideas, quotes: quotes, fxRates: [:],
+                                           openCalls: [first!.trade], today: "2026-07-03", stateURL: url)
+        XCTAssertNil(second)
+        // Next day, UP already called → falls through to the short.
+        let third = AgentService.runCycle(ideas: ideas, quotes: quotes, fxRates: [:],
+                                          openCalls: [first!.trade], today: "2026-07-04", stateURL: url)
+        XCTAssertEqual(third?.trade.symbol, "DOWN")
+        XCTAssertEqual(third?.trade.side, "SELL")
+    }
+
+    func testAgentRespectsMaxOpenCalls() {
+        let url = tmpState(); defer { try? FileManager.default.removeItem(at: url) }
+        let open = (0..<6).map { i in
+            PaperTrade(date: "2026-07-01", side: "BUY", symbol: "S\(i)",
+                       shares: 1, entryPrice: 10, amount: 10, source: "agent")
+        }
+        let action = AgentService.runCycle(ideas: ideas, quotes: quotes, fxRates: [:],
+                                           openCalls: open, today: "2026-07-03", stateURL: url)
+        XCTAssertNil(action)
+    }
+
+    func testAgentStoresItsReasoning() {
+        let url = tmpState(); defer { try? FileManager.default.removeItem(at: url) }
+        let action = AgentService.runCycle(ideas: ideas, quotes: quotes, fxRates: [:],
+                                           openCalls: [], today: "2026-07-03", stateURL: url)!
+        let state = AgentService.loadState(from: url)
+        XCTAssertEqual(state.reasonings[action.trade.id.uuidString], "uptrend")
+        XCTAssertEqual(state.lastActionDate, "2026-07-03")
+    }
+}
+
 final class BrokerageImportTests: XCTestCase {
     func testYahooSymbolMapping() {
         XCTAssertEqual(CsvImporter.yahooSymbol(raw: "SHOP", exchange: "TSX", securityType: "EQUITY", bookCurrency: "CAD"), "SHOP.TO")

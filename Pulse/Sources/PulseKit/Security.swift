@@ -11,6 +11,7 @@ public enum Security {
             SnapshotStore.fileURL,
             PaperLedger.fileURL,
             Watchlist.fileURL,
+            AgentService.stateURL,
         ]
         for url in files where FileManager.default.fileExists(atPath: url.path) {
             try? FileManager.default.setAttributes(

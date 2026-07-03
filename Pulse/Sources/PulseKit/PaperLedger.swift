@@ -13,9 +13,12 @@ public struct PaperTrade: Codable, Identifiable {
     public let shares: Double
     public let entryPrice: Double
     public let amount: Double
+    /// Who made the call — nil = the user, "agent" = the in-app agent.
+    public let source: String?
 
     public init(id: UUID = UUID(), date: String, side: String, symbol: String,
-                shares: Double, entryPrice: Double, amount: Double) {
+                shares: Double, entryPrice: Double, amount: Double,
+                source: String? = nil) {
         self.id = id
         self.date = date
         self.side = side
@@ -23,6 +26,7 @@ public struct PaperTrade: Codable, Identifiable {
         self.shares = shares
         self.entryPrice = entryPrice
         self.amount = amount
+        self.source = source
     }
 }
 
