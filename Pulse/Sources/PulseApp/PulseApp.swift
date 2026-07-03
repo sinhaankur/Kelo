@@ -14,6 +14,15 @@ struct PulseApp: App {
         // Fixed default size — never let content width (e.g. a 60-position
         // legend) drive the window off the screen.
         .defaultSize(width: 1000, height: 940)
+        .commands {
+            // The user owns their data: full export and full wipe,
+            // first-class (all files are plain JSON on this machine).
+            CommandMenu("Data") {
+                Button("Export All Data…") { DataManager.exportAll() }
+                Divider()
+                Button("Delete All Data…") { DataManager.wipeAll() }
+            }
+        }
 
         // Glanceable pulse in the menu bar. Percentages only in the label;
         // dollar figures appear in the dropdown and only while unlocked.
@@ -32,6 +41,42 @@ struct PulseApp: App {
                 }
             }
         }
+    }
+}
+
+enum DataManager {
+    static var allFiles: [URL] {
+        [Portfolio.fileURL, AppConfig.fileURL, SnapshotStore.fileURL,
+         PaperLedger.fileURL, Watchlist.fileURL]
+    }
+
+    static func exportAll() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.message = "Choose a folder — Pulse copies its JSON data files there (they include your positions and keys; treat the copy with the same care)"
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        let fm = FileManager.default
+        for url in allFiles where fm.fileExists(atPath: url.path) {
+            let dest = dir.appendingPathComponent("pulse-export-" + url.lastPathComponent)
+            try? fm.removeItem(at: dest)
+            try? fm.copyItem(at: url, to: dest)
+        }
+    }
+
+    static func wipeAll() {
+        let alert = NSAlert()
+        alert.messageText = "Delete all Pulse data?"
+        alert.informativeText = "Removes portfolio, config (including API keys), snapshots, paper trades and watchlist from this machine. This cannot be undone."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Delete Everything")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        for url in allFiles {
+            try? FileManager.default.removeItem(at: url)
+        }
+        NSApp.terminate(nil)
     }
 }
 

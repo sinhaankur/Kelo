@@ -21,9 +21,21 @@ struct TimelineCard: View {
                     ForEach(model.sortedHoldings) { h in
                         if let t = model.timelines[h.symbol] {
                             GridRow {
-                                Text(h.symbol)
-                                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                                    .gridColumnAlignment(.leading)
+                                Button {
+                                    model.outlookTarget = AppModel.OutlookTarget(symbol: h.symbol)
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(h.symbol)
+                                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 8, weight: .semibold))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Outlook + lifecycle for \(h.symbol)")
+                                .gridColumnAlignment(.leading)
                                 HStack(spacing: 5) {
                                     Text(t.acquiredLabel).cell()
                                     if t.estimated { EstPill() }

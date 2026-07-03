@@ -13,6 +13,7 @@ final class AppModel: ObservableObject {
     @Published var holdingsNews: [String: [GlobalSentiment.Headline]] = [:]
     @Published var paperTrades: [PaperTrade] = []
     @Published var paperReviews: [PaperReview] = []
+    @Published var watchlist: [String] = []
     @Published var snapshots: [DailySnapshot] = []
     @Published var lastRefresh: Date? = nil
     @Published var refreshing = false
@@ -62,9 +63,10 @@ final class AppModel: ObservableObject {
         portfolio = Portfolio.load() // re-read so edits to the JSON show up
         paperTrades = PaperLedger.load()
         snapshots = SnapshotStore.load()
-        // Paper-trade symbols get quotes too, even when not held for real.
+        watchlist = Watchlist.load()
+        // Paper-trade + watchlist symbols get quotes too, even when not held.
         let symbols = portfolio.holdings.map(\.symbol) + portfolio.calls.map(\.underlying)
-            + paperTrades.map(\.symbol)
+            + paperTrades.map(\.symbol) + watchlist
         guard !symbols.isEmpty else { return }
         refreshing = true
         let callUnderlyings = portfolio.calls.map(\.underlying)
@@ -132,6 +134,15 @@ final class AppModel: ObservableObject {
         PaperLedger.remove(id: id)
         paperTrades = PaperLedger.load()
         recomputePaperReviews()
+    }
+
+    func addToWatchlist(_ symbol: String) {
+        watchlist = Watchlist.add(symbol)
+        refresh() // pick up the new symbol's quote
+    }
+
+    func removeFromWatchlist(_ symbol: String) {
+        watchlist = Watchlist.remove(symbol)
     }
 
     /// Timelines need 10y of history per symbol — fetch only when the
@@ -295,6 +306,7 @@ struct ContentView: View {
                             AllocationCard(model: model)
                         case .market:
                             SentimentCard(model: model)
+                            WatchlistCard(model: model)
                             if model.holdingsNews.isEmpty {
                                 Card(title: "HOLDINGS NEWS") {
                                     Text(model.config.finnhubApiKey == nil
@@ -396,6 +408,64 @@ private struct LookupCard: View {
         let s = symbol.trimmingCharacters(in: .whitespaces).uppercased()
         guard !s.isEmpty else { return }
         model.outlookTarget = AppModel.OutlookTarget(symbol: s)
+    }
+}
+
+/// Symbols watched without being owned — click through to the outlook, log
+/// a paper call, only then think about real money.
+private struct WatchlistCard: View {
+    @ObservedObject var model: AppModel
+    @State private var newSymbol = ""
+    var body: some View {
+        Card(title: "WATCHLIST", trailing: "click a symbol for its outlook") {
+            VStack(alignment: .leading, spacing: 8) {
+                if model.watchlist.isEmpty {
+                    Text("nothing watched yet — add a ticker to track it without owning it")
+                        .font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
+                } else {
+                    Grid(alignment: .trailing, horizontalSpacing: 16, verticalSpacing: 8) {
+                        ForEach(model.watchlist, id: \.self) { s in
+                            let q = model.quotes[s]
+                            GridRow {
+                                Button {
+                                    model.outlookTarget = AppModel.OutlookTarget(symbol: s)
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(s).font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 8)).foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .gridColumnAlignment(.leading)
+                                Text(q.map { usd(model.displayPrice($0)) } ?? "…").cell()
+                                DayPill(pct: q?.dayChangePct)
+                                Button {
+                                    model.removeFromWatchlist(s)
+                                } label: {
+                                    Image(systemName: "xmark.circle").font(.system(size: 11))
+                                }
+                                .buttonStyle(.plain).foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                }
+                HStack(spacing: 8) {
+                    TextField("add ticker…", text: $newSymbol)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(width: 140)
+                        .onSubmit(add)
+                    Button("Watch", action: add)
+                        .disabled(newSymbol.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Spacer()
+                }
+            }
+        }
+    }
+    private func add() {
+        model.addToWatchlist(newSymbol)
+        newSymbol = ""
     }
 }
 
@@ -619,12 +689,17 @@ private struct HoldingsCard: View {
                         Button {
                             model.outlookTarget = AppModel.OutlookTarget(symbol: h.symbol)
                         } label: {
-                            Text(h.symbol)
-                                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                                .underline(false)
+                            HStack(spacing: 4) {
+                                Text(h.symbol)
+                                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .help("Outlook for \(h.symbol) — sourced signals, not a forecast")
+                        .help("Outlook + lifecycle for \(h.symbol) — sourced signals, not a forecast")
                         .gridColumnAlignment(.leading)
                         Sparkline(closes: q?.closes ?? [])
                             .frame(width: 72, height: 20)

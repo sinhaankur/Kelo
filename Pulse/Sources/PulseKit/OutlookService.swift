@@ -43,6 +43,9 @@ public struct StockOutlook {
     public let annualVolPct: Double?
     /// Worst peak-to-trough fall inside the last year.
     public let maxDrawdown1yPct: Double?
+    /// Trailing-12-month dividend yield from real paid distributions.
+    /// Caveat baked into the UI: a soaring yield is often a falling price.
+    public let ttmDividendYieldPct: Double?
     public let recommendations: AnalystRecs?
     public let news: [GlobalSentiment.Headline]
 }
@@ -54,6 +57,7 @@ public enum OutlookService {
         async let quoteTask = QuoteService.fetch(symbol: symbol)
         async let recsTask = fetchRecommendations(symbol: symbol, key: finnhubKey)
         async let newsTask = SentimentService.companyNews(symbol: symbol, key: finnhubKey, limit: 3)
+        async let divTask = QuoteService.trailingDividendYieldPct(symbol: symbol)
 
         let hist = await histTask
         guard let quote = await quoteTask, hist.count >= 2 else { return nil }
@@ -75,6 +79,7 @@ public enum OutlookService {
                             pctFromHigh: s.fromHigh,
                             annualVolPct: s.vol,
                             maxDrawdown1yPct: s.drawdown,
+                            ttmDividendYieldPct: await divTask,
                             recommendations: await recsTask,
                             news: await newsTask)
     }

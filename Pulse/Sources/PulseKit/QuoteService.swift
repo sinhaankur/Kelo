@@ -12,9 +12,12 @@ public enum QuoteService {
             let meta: Meta
             let timestamp: [Int]?
             let indicators: Indicators?
+            let events: Events?
         }
         struct Indicators: Decodable { let quote: [QuoteBlock]? }
         struct QuoteBlock: Decodable { let close: [Double?]? }
+        struct Events: Decodable { let dividends: [String: Dividend]? }
+        struct Dividend: Decodable { let amount: Double? }
         struct Meta: Decodable {
             let symbol: String
             let currency: String?
@@ -25,16 +28,41 @@ public enum QuoteService {
         let chart: Chart
     }
 
-    private static func chartRequest(symbol: String, range: String) -> URLRequest {
+    private static func chartRequest(symbol: String, range: String,
+                                     interval: String = "1d", events: Bool = false) -> URLRequest {
         var comps = URLComponents(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(symbol)")!
-        comps.queryItems = [
-            URLQueryItem(name: "interval", value: "1d"),
+        var items = [
+            URLQueryItem(name: "interval", value: interval),
             URLQueryItem(name: "range", value: range),
         ]
+        if events { items.append(URLQueryItem(name: "events", value: "div")) }
+        comps.queryItems = items
         var req = URLRequest(url: comps.url!)
         req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = 15
         return req
+    }
+
+    // MARK: - Dividends
+
+    /// Trailing-12-month dividend yield from REAL paid distributions (Yahoo
+    /// dividend events over 1y ÷ current price) — works for any listing,
+    /// including .TO ETFs. nil when nothing was paid.
+    public static func trailingDividendYieldPct(symbol: String) async -> Double? {
+        let req = chartRequest(symbol: symbol, range: "1y", interval: "1mo", events: true)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let parsed = try? JSONDecoder().decode(ChartResponse.self, from: data),
+              let result = parsed.chart.result?.first,
+              let price = result.meta.regularMarketPrice
+        else { return nil }
+        let paid = (result.events?.dividends ?? [:]).values.compactMap(\.amount).reduce(0, +)
+        return yieldPct(dividendSum: paid, price: price)
+    }
+
+    static func yieldPct(dividendSum: Double, price: Double) -> Double? {
+        guard price > 0, dividendSum > 0 else { return nil }
+        return dividendSum / price * 100
     }
 
     public static func fetch(symbol: String) async -> Quote? {

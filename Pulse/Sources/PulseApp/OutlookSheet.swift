@@ -11,6 +11,7 @@ struct OutlookSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var outlook: StockOutlook? = nil
+    @State private var lifecycle: [QuoteService.HistoryPoint] = []
     @State private var loading = true
     @State private var llmOutput = ""
     @State private var llmStatus = ""
@@ -43,6 +44,26 @@ struct OutlookSheet: View {
                 Text("fetching real history + analyst data…")
                     .font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
             } else if let o = outlook {
+                // The whole lifecycle — every close since Yahoo has data for
+                // the listing, with the user's buy point marked when held.
+                if lifecycle.count >= 2, let first = lifecycle.first {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text("LIFECYCLE since \(isoDateString(first.date))")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .tracking(1).foregroundStyle(.tertiary)
+                            Spacer()
+                            if model.timelines[symbol] != nil {
+                                Text("┊ marks your invested date")
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        LifecycleChart(points: lifecycle,
+                                       acquired: model.timelines[symbol]?.acquired)
+                            .frame(height: 84)
+                    }
+                }
                 HStack(spacing: 10) {
                     if let r = o.ret30dPct { tile("30-DAY", pctLabel(r), r >= 0 ? .green : .red) }
                     if let r = o.ret1yPct { tile("1-YEAR", pctLabel(r), r >= 0 ? .green : .red) }
@@ -58,6 +79,11 @@ struct OutlookSheet: View {
                     if let r = o.rsi14 {
                         tile("RSI 14", String(format: "%.0f", r),
                              r > 70 ? .orange : r < 30 ? .cyan : .secondary)
+                    }
+                    if let dy = o.ttmDividendYieldPct {
+                        // High yield + big drawdown = yield trap territory.
+                        tile("DIV YIELD TTM", String(format: "%.2f%%", dy),
+                             dy > 6 ? .orange : .green)
                     }
                     Spacer()
                 }
@@ -118,10 +144,18 @@ struct OutlookSheet: View {
             Spacer(minLength: 0)
         }
         .padding(16)
-        .frame(width: 720, height: 480)
+        .frame(width: 720, height: 580)
         .task {
-            outlook = await OutlookService.fetch(symbol: symbol,
-                                                 finnhubKey: model.config.finnhubApiKey)
+            async let outlookTask = OutlookService.fetch(symbol: symbol,
+                                                         finnhubKey: model.config.finnhubApiKey)
+            async let lifeTask = QuoteService.fetchHistory(symbol: symbol, range: "max")
+            outlook = await outlookTask
+            var life = await lifeTask
+            if life.count > 300 {
+                let stride = Double(life.count - 1) / 299.0
+                life = (0..<300).map { life[Int((Double($0) * stride).rounded())] }
+            }
+            lifecycle = life
             loading = false
         }
     }
@@ -150,7 +184,7 @@ struct OutlookSheet: View {
         SYMBOL: \(o.symbol) at \(usd(o.price * model.fx(o.currency))) — \(position)
         30d \(o.ret30dPct.map(pctLabel) ?? "?") · 1y \(o.ret1yPct.map(pctLabel) ?? "?") · S&P 1y \(o.benchRet1yPct.map(pctLabel) ?? "?")
         vs 52w high \(o.pctFromHigh.map(pctLabel) ?? "?") · vs 50dma \(o.vsMa50Pct.map(pctLabel) ?? "?") · vs 200dma \(o.vsMa200Pct.map(pctLabel) ?? "?") · RSI14 \(o.rsi14.map { String(format: "%.0f", $0) } ?? "?")
-        realized vol \(o.annualVolPct.map { String(format: "%.0f%%/y", $0) } ?? "?") · max fall 1y \(o.maxDrawdown1yPct.map(pctLabel) ?? "?")
+        realized vol \(o.annualVolPct.map { String(format: "%.0f%%/y", $0) } ?? "?") · max fall 1y \(o.maxDrawdown1yPct.map(pctLabel) ?? "?") · TTM dividend yield \(o.ttmDividendYieldPct.map { String(format: "%.2f%%", $0) } ?? "none paid")
         \(recs)
         GLOBAL SENTIMENT: \(sentiment)
         NEWS:
@@ -189,5 +223,53 @@ struct OutlookSheet: View {
         RoundedRectangle(cornerRadius: 2)
             .fill(color.opacity(0.8))
             .frame(width: max(0, geo.size.width * CGFloat(count) / CGFloat(max(1, total))))
+    }
+}
+
+/// Full listed history, log-friendly single line with the user's invested
+/// date as a dashed vertical marker.
+private struct LifecycleChart: View {
+    let points: [QuoteService.HistoryPoint]
+    let acquired: Date?
+
+    var body: some View {
+        GeometryReader { geo in
+            let closes = points.map(\.close)
+            if let lo = closes.min(), let hi = closes.max(), hi > lo,
+               let firstDate = points.first?.date, let lastDate = points.last?.date,
+               lastDate > firstDate {
+                let up = closes.last! >= closes.first!
+                let color: Color = up ? .green : .red
+                let span = lastDate.timeIntervalSince(firstDate)
+                let pts: [CGPoint] = points.map { p in
+                    CGPoint(x: geo.size.width * CGFloat(p.date.timeIntervalSince(firstDate) / span),
+                            y: geo.size.height * (1 - CGFloat((p.close - lo) / (hi - lo))))
+                }
+                ZStack {
+                    Path { p in
+                        p.move(to: CGPoint(x: pts[0].x, y: geo.size.height))
+                        for pt in pts { p.addLine(to: pt) }
+                        p.addLine(to: CGPoint(x: pts.last!.x, y: geo.size.height))
+                        p.closeSubpath()
+                    }
+                    .fill(LinearGradient(colors: [color.opacity(0.16), .clear],
+                                         startPoint: .top, endPoint: .bottom))
+                    Path { p in
+                        p.move(to: pts[0])
+                        for pt in pts.dropFirst() { p.addLine(to: pt) }
+                    }
+                    .stroke(color.opacity(0.9), lineWidth: 1.4)
+                    if let acquired, acquired >= firstDate, acquired <= lastDate {
+                        let x = geo.size.width * CGFloat(acquired.timeIntervalSince(firstDate) / span)
+                        Path { p in
+                            p.move(to: CGPoint(x: x, y: 0))
+                            p.addLine(to: CGPoint(x: x, y: geo.size.height))
+                        }
+                        .stroke(Color.secondary.opacity(0.7),
+                                style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    }
+                }
+            }
+        }
     }
 }

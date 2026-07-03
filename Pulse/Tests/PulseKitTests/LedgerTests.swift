@@ -96,6 +96,27 @@ final class PaperLedgerTests: XCTestCase {
     }
 }
 
+final class WatchlistTests: XCTestCase {
+    func testAddRemoveRoundTrip() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pulse-test-watch-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(Watchlist.add(" nvda ", to: url), ["NVDA"])
+        XCTAssertEqual(Watchlist.add("NVDA", to: url), ["NVDA"]) // no dupes
+        XCTAssertEqual(Watchlist.add("SHOP.TO", to: url), ["NVDA", "SHOP.TO"])
+        XCTAssertEqual(Watchlist.remove("NVDA", from: url), ["SHOP.TO"])
+        XCTAssertEqual(Watchlist.load(from: url), ["SHOP.TO"])
+    }
+}
+
+final class DividendYieldTests: XCTestCase {
+    func testYieldMath() {
+        XCTAssertEqual(QuoteService.yieldPct(dividendSum: 1.05, price: 32.39)!, 3.242, accuracy: 0.01)
+        XCTAssertNil(QuoteService.yieldPct(dividendSum: 0, price: 100))  // none paid ≠ 0% claim
+        XCTAssertNil(QuoteService.yieldPct(dividendSum: 1, price: 0))
+    }
+}
+
 final class EquitySymbolTests: XCTestCase {
     func testCompanyNewsOnlyForPlainEquities() {
         XCTAssertTrue(SentimentService.isEquitySymbol("AAPL"))
