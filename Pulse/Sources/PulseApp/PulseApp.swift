@@ -11,7 +11,9 @@ struct PulseApp: App {
         WindowGroup {
             ContentView(model: model, lock: lock)
         }
-        .windowResizability(.contentSize)
+        // Fixed default size — never let content width (e.g. a 60-position
+        // legend) drive the window off the screen.
+        .defaultSize(width: 1000, height: 940)
 
         // Glanceable pulse in the menu bar. Percentages only in the label;
         // dollar figures appear in the dropdown and only while unlocked.

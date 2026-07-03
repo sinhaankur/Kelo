@@ -18,7 +18,7 @@ struct TimelineCard: View {
                         head("SYMBOL", leading: true); head("INVESTED"); head("HELD")
                         head("RETURN"); head("ANN."); head("VS S&P"); head("")
                     }
-                    ForEach(model.portfolio.holdings) { h in
+                    ForEach(model.sortedHoldings) { h in
                         if let t = model.timelines[h.symbol] {
                             GridRow {
                                 Text(h.symbol)

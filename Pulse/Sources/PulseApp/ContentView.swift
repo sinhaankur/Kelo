@@ -110,7 +110,9 @@ final class AppModel: ObservableObject {
         if let t = lastSentimentFetch, Date().timeIntervalSince(t) < 300 { return }
         lastSentimentFetch = Date()
         let key = config.finnhubApiKey
-        let holdingSymbols = portfolio.holdings.map(\.symbol)
+        // Top positions only — a 60-holding import must not fire 60 news
+        // calls per cycle into Finnhub's 60/min free tier.
+        let holdingSymbols = Array(sortedHoldings.prefix(8).map(\.symbol))
         Task {
             async let s = SentimentService.fetch(finnhubKey: key)
             async let news = SentimentService.holdingsNews(symbols: holdingSymbols, key: key)
@@ -148,6 +150,15 @@ final class AppModel: ObservableObject {
 
     func holdingValue(_ h: Holding) -> Double { (quotes[h.symbol]?.price ?? 0) * h.quantity }
 
+    /// Display order: biggest position first (cost basis until quotes land).
+    var sortedHoldings: [Holding] {
+        portfolio.holdings.sorted {
+            let a = quotes[$0.symbol] != nil ? holdingValue($0) : $0.costBasis * $0.quantity
+            let b = quotes[$1.symbol] != nil ? holdingValue($1) : $1.costBasis * $1.quantity
+            return a > b
+        }
+    }
+
     var totalValue: Double {
         portfolio.holdings.reduce(0) { $0 + holdingValue($1) }
             + portfolio.calls.reduce(0) { $0 + (callValue($1) ?? 0) }
@@ -167,43 +178,122 @@ final class AppModel: ObservableObject {
 
 // MARK: - Root
 
+enum AppSection: String, CaseIterable, Identifiable {
+    case overview, positions, news, trade, analyze
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .overview: return "Overview"
+        case .positions: return "Positions"
+        case .news: return "News"
+        case .trade: return "Trade"
+        case .analyze: return "Analyze"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .overview: return "waveform.path.ecg"
+        case .positions: return "chart.bar.xaxis"
+        case .news: return "newspaper"
+        case .trade: return "arrow.left.arrow.right"
+        case .analyze: return "text.magnifyingglass"
+        }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var lock: LockModel
     @AppStorage("themeMode") private var themeModeRaw = ThemeMode.auto.rawValue
+    @State private var section: AppSection? = .overview
 
     var body: some View {
         let isDark = (ThemeMode(rawValue: themeModeRaw) ?? .auto).isDark(at: model.tick)
         LockGate(lock: lock) { lock in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    HeaderCard(model: model, lock: lock)
-                    SentimentCard(model: model)
-                    GrowthCard(model: model)
-                    AllocationCard(model: model)
-                    StatsCard(model: model)
-                    HoldingsCard(model: model)
-                    TimelineCard(model: model)
-                    if !model.holdingsNews.isEmpty { HoldingsNewsCard(model: model) }
-                    if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
-                    TradeDraftCard(model: model)
-                    if !model.paperTrades.isEmpty { PaperLedgerCard(model: model) }
-                    AnalysisCard(app: model)
-                    footer
+            NavigationSplitView {
+                List(selection: $section) {
+                    ForEach(AppSection.allCases) { s in
+                        Label(s.title, systemImage: s.icon).tag(s)
+                    }
                 }
-                .padding(14)
+                .listStyle(.sidebar)
+                .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 210)
+                .safeAreaInset(edge: .bottom) {
+                    VStack(spacing: 1) {
+                        Text("Pulse v\(PulseInfo.version)")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Text(PulseInfo.tagline)
+                            .font(.system(size: 8.5))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                }
+            } detail: {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HeaderCard(model: model, lock: lock)
+                        switch section ?? .overview {
+                        case .overview:
+                            SentimentCard(model: model)
+                            GrowthCard(model: model)
+                            AllocationCard(model: model)
+                            StatsCard(model: model)
+                        case .positions:
+                            HoldingsCard(model: model)
+                            TimelineCard(model: model)
+                            if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
+                        case .news:
+                            if model.holdingsNews.isEmpty {
+                                Card(title: "HOLDINGS NEWS") {
+                                    Text(model.config.finnhubApiKey == nil
+                                         ? "add finnhubApiKey to config.json to see company news for your holdings"
+                                         : "fetching company news for your top holdings…")
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.tertiary)
+                                }
+                            } else {
+                                HoldingsNewsCard(model: model)
+                            }
+                        case .trade:
+                            TradeDraftCard(model: model)
+                            if model.paperTrades.isEmpty {
+                                Card(title: "PAPER TRADES") {
+                                    Text("no paper trades yet — draft above and press \"Log paper trade\" to start scoring your calls against reality")
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.tertiary)
+                                }
+                            } else {
+                                PaperLedgerCard(model: model)
+                            }
+                        case .analyze:
+                            AnalysisCard(app: model)
+                        }
+                        footer
+                    }
+                    .padding(14)
+                    .frame(maxWidth: 1100, alignment: .leading)
+                }
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(isDark ? .dark : .light)
-        .frame(minWidth: 760, minHeight: 640)
+        .frame(minWidth: 900, minHeight: 640)
         .onAppear { model.start() }
     }
 
     private var footer: some View {
-        HStack {
+        let holdingSymbols = Set(model.portfolio.holdings.map(\.symbol))
+        let quoted = holdingSymbols.filter { model.quotes[$0] != nil }.count
+        return HStack {
             Text("portfolio.json · quotes: Yahoo (delayed) · options: CBOE delayed · sentiment: VIX/alternative.me/Finnhub")
             Spacer()
+            if quoted < holdingSymbols.count {
+                Text("⚠ quotes \(quoted)/\(holdingSymbols.count) — unquoted positions count as $0")
+                    .foregroundStyle(.orange)
+            }
             if let t = model.lastRefresh {
                 Text("updated \(t.formatted(date: .omitted, time: .shortened))")
             }
@@ -339,21 +429,33 @@ private func symbolColor(_ symbol: String, index: Int) -> Color {
 
 private struct AllocationCard: View {
     @ObservedObject var model: AppModel
+
+    /// Top positions by value; everything past 10 groups into OTHER so a
+    /// 60-position import stays readable instead of becoming 60 slivers.
+    private var entries: [(String, Double, Color)] {
+        var out: [(String, Double, Color)] = []
+        for (i, h) in model.sortedHoldings.enumerated() {
+            out.append((h.symbol, model.holdingValue(h), symbolColor(h.symbol, index: i)))
+        }
+        let base = model.portfolio.holdings.count
+        for (i, c) in model.portfolio.calls.enumerated() {
+            out.append(("\(c.underlying) C", model.callValue(c) ?? 0, symbolColor(c.underlying, index: base + i)))
+        }
+        out = out.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
+        if out.count > 11 {
+            let rest = out[10...]
+            out = Array(out.prefix(10))
+            out.append(("OTHER ×\(rest.count)", rest.reduce(0) { $0 + $1.1 }, .gray))
+        }
+        return out
+    }
+
     var body: some View {
-        let entries: [(String, Double, Color)] = {
-            var out: [(String, Double, Color)] = []
-            for (i, h) in model.portfolio.holdings.enumerated() {
-                out.append((h.symbol, model.holdingValue(h), symbolColor(h.symbol, index: i)))
-            }
-            let base = model.portfolio.holdings.count
-            for (i, c) in model.portfolio.calls.enumerated() {
-                out.append(("\(c.underlying) C", model.callValue(c) ?? 0, symbolColor(c.underlying, index: base + i)))
-            }
-            return out.filter { $0.1 > 0 }
-        }()
+        let entries = self.entries
         let total = entries.reduce(0) { $0 + $1.1 }
 
-        Card(title: "ALLOCATION") {
+        Card(title: "ALLOCATION", trailing: entries.contains(where: { $0.0.hasPrefix("OTHER") })
+             ? "top 10 shown · rest grouped" : nil) {
             if total <= 0 {
                 Text("waiting for quotes…")
                     .font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
@@ -369,16 +471,18 @@ private struct AllocationCard: View {
                         }
                     }
                     .frame(height: 14)
-                    HStack(spacing: 12) {
+                    // Wrapping grid — the legend must never widen the window.
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 8, alignment: .leading)],
+                              alignment: .leading, spacing: 5) {
                         ForEach(entries.indices, id: \.self) { i in
                             HStack(spacing: 5) {
                                 Circle().fill(entries[i].2).frame(width: 6, height: 6)
                                 Text("\(entries[i].0) \(Int((entries[i].1 / total * 100).rounded()))%")
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                             }
                         }
-                        Spacer()
                     }
                 }
             }
@@ -396,7 +500,7 @@ private struct HoldingsCard: View {
                     head("SYMBOL", leading: true); head(""); head("QTY"); head("PRICE")
                     head("DAY"); head("VALUE"); head("P/L")
                 }
-                ForEach(model.portfolio.holdings) { h in
+                ForEach(model.sortedHoldings) { h in
                     let q = model.quotes[h.symbol]
                     let value = model.holdingValue(h)
                     let pl = value - h.costBasis * h.quantity

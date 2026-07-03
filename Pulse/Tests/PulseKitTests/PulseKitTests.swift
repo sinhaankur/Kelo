@@ -124,9 +124,13 @@ final class PortfolioHistoryTests: XCTestCase {
         let b = Holding(symbol: "B", quantity: 1, costBasis: 100, acquired: isoDateString(day(3)))
         let tA = TimelineService.timeline(for: a, history: hA, price: 15, benchmark: hA)!
         let tB = TimelineService.timeline(for: b, history: hB, price: 200, benchmark: hB)!
+        let liveQuotes = [
+            "A": Quote(symbol: "A", price: 15, previousClose: 14, closes: []),
+            "B": Quote(symbol: "B", price: 200, previousClose: 200, closes: []),
+        ]
         let ph = TimelineService.portfolioHistory(
             holdings: [a, b], timelines: ["A": tA, "B": tB],
-            histories: ["A": hA, "B": hB], quotes: [:])
+            histories: ["A": hA, "B": hB], quotes: liveQuotes)
         XCTAssertNotNil(ph)
         // Day 0: only A is open (2 × 10); B joins at day 3 (2×13 + 1×200).
         XCTAssertEqual(ph!.values.first!, 20, accuracy: 0.001)
@@ -136,15 +140,37 @@ final class PortfolioHistoryTests: XCTestCase {
         XCTAssertEqual(ph!.costs[3], 120, accuracy: 0.001)
     }
 
-    func testMissingHistoryMeansNoPartialChart() {
+    func testMissingHistoryYieldsLabeledPartialCoverage() {
         let a = Holding(symbol: "A", quantity: 1, costBasis: 10, acquired: isoDateString(day(0)))
         let hA = history([10, 11])
         let tA = TimelineService.timeline(for: a, history: hA, price: 11, benchmark: hA)!
         let b = Holding(symbol: "B", quantity: 1, costBasis: 10)
-        // B has no timeline/history — a partial reconstruction would lie.
+        // B has no history (e.g. a CSV symbol Yahoo can't chart) — the chart
+        // is built from what IS known and labeled with its coverage.
         let ph = TimelineService.portfolioHistory(
-            holdings: [a, b], timelines: ["A": tA], histories: ["A": hA], quotes: [:])
-        XCTAssertNil(ph)
+            holdings: [a, b], timelines: ["A": tA], histories: ["A": hA],
+            quotes: ["A": Quote(symbol: "A", price: 11, previousClose: 10, closes: [])])
+        XCTAssertNotNil(ph)
+        XCTAssertEqual(ph?.covered, 1)
+        XCTAssertEqual(ph?.total, 2)
+        XCTAssertEqual(ph!.values.last!, 11, accuracy: 0.001) // A only
+    }
+
+    func testDelistedSymbolsNeverValuedAtStaleCloses() {
+        // DEAD has 10y of history but no live quote (delisted) — it must not
+        // enter the curve at its last known close.
+        let hLive = history([10, 11])
+        let hDead = history([500, 510])
+        let live = Holding(symbol: "LIVE", quantity: 1, costBasis: 10, acquired: isoDateString(day(0)))
+        let dead = Holding(symbol: "DEAD", quantity: 10, costBasis: 500, acquired: isoDateString(day(0)))
+        let tLive = TimelineService.timeline(for: live, history: hLive, price: 11, benchmark: hLive)!
+        let tDead = TimelineService.timeline(for: dead, history: hDead, price: 510, benchmark: hDead)!
+        let ph = TimelineService.portfolioHistory(
+            holdings: [live, dead], timelines: ["LIVE": tLive, "DEAD": tDead],
+            histories: ["LIVE": hLive, "DEAD": hDead],
+            quotes: ["LIVE": Quote(symbol: "LIVE", price: 11, previousClose: 10, closes: [])])
+        XCTAssertEqual(ph?.covered, 1)
+        XCTAssertEqual(ph!.values.last!, 11, accuracy: 0.001) // LIVE only, no 5100 ghost
     }
 }
 
@@ -200,7 +226,7 @@ final class SentimentTests: XCTestCase {
         GlobalSentiment(vix: vix, indices: [
             .init(name: "S&P 500", dayPct: 0.5),
             .init(name: "Nikkei 225", dayPct: -0.3),
-        ], cryptoFearGreed: 21, cryptoFearGreedLabel: "Extreme Fear",
+        ], macro: [], cryptoFearGreed: 21, cryptoFearGreedLabel: "Extreme Fear",
            headlines: [], fetchedAt: Date())
     }
 

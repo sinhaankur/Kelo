@@ -34,6 +34,11 @@ public struct PortfolioHistory {
     public let values: [Double]
     /// Cost basis deployed by that day — the flat line the value must beat.
     public let costs: [Double]
+    /// Coverage: positions with usable history vs total. Real-world CSV
+    /// imports include symbols Yahoo can't chart — the series is built from
+    /// what IS known and labeled with this coverage, never silently partial.
+    public let covered: Int
+    public let total: Int
 }
 
 public struct PortfolioAnalysis {
@@ -54,12 +59,19 @@ public enum TimelineService {
             return PortfolioAnalysis(timelines: [:], history: nil, benchmark: [])
         }
         async let benchTask = QuoteService.fetchHistory(symbol: "^GSPC")
+        // Bounded concurrency — hundreds of 10-year history fetches at once
+        // would be rate-limited into silent gaps.
+        let unique = Array(Set(holdings.map(\.symbol)))
         let histories = await withTaskGroup(of: (String, [QuoteService.HistoryPoint]).self) { group in
-            for s in Set(holdings.map(\.symbol)) {
-                group.addTask { (s, await QuoteService.fetchHistory(symbol: s)) }
+            var it = unique.makeIterator()
+            for _ in 0..<min(8, unique.count) {
+                if let s = it.next() { group.addTask { (s, await QuoteService.fetchHistory(symbol: s)) } }
             }
             var out: [String: [QuoteService.HistoryPoint]] = [:]
-            for await (s, h) in group { out[s] = h }
+            for await (s, h) in group {
+                out[s] = h
+                if let s = it.next() { group.addTask { (s, await QuoteService.fetchHistory(symbol: s)) } }
+            }
             return out
         }
         let bench = await benchTask
@@ -97,7 +109,11 @@ public enum TimelineService {
         var series: [Series] = []
         var daySet = Set<Date>()
         for h in holdings {
-            guard let t = timelines[h.symbol], let hist = histories[h.symbol], !hist.isEmpty else { continue }
+            // A live quote is required: a symbol with old history but no
+            // current quote is likely delisted — valuing it at a years-old
+            // close would inflate the whole curve.
+            guard quotes[h.symbol] != nil,
+                  let t = timelines[h.symbol], let hist = histories[h.symbol], !hist.isEmpty else { continue }
             let start = cal.startOfDay(for: t.acquired)
             var days: [Date] = []
             var closes: [Double] = []
@@ -111,7 +127,11 @@ public enum TimelineService {
             series.append(Series(start: start, days: days, closes: closes,
                                  qty: h.quantity, cost: h.costBasis * h.quantity))
         }
-        guard series.count == holdings.count, !daySet.isEmpty else { return nil }
+        guard !series.isEmpty, !daySet.isEmpty else { return nil }
+        let coveredHoldings = holdings.filter {
+            quotes[$0.symbol] != nil && timelines[$0.symbol] != nil
+                && !(histories[$0.symbol] ?? []).isEmpty
+        }
 
         let grid = daySet.sorted()
         var values = [Double](repeating: 0, count: grid.count)
@@ -130,7 +150,7 @@ public enum TimelineService {
         }
         // Live tail: today's holdings value from real-time quotes when known.
         if let last = values.indices.last {
-            let live = zip(series, holdings).reduce(0.0) { acc, pair in
+            let live = zip(series, coveredHoldings).reduce(0.0) { acc, pair in
                 acc + pair.0.qty * (quotes[pair.1.symbol]?.price ?? pair.0.closes.last ?? 0)
             }
             if live > 0 { values[last] = live }
@@ -143,7 +163,8 @@ public enum TimelineService {
             values = idx.map { values[$0] }
             costs = idx.map { costs[$0] }
         }
-        return PortfolioHistory(dates: dates, values: values, costs: costs)
+        return PortfolioHistory(dates: dates, values: values, costs: costs,
+                                covered: series.count, total: holdings.count)
     }
 
     static func timeline(for holding: Holding,

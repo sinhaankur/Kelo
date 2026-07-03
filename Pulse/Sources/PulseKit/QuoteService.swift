@@ -68,14 +68,30 @@ public enum QuoteService {
         return Quote(symbol: symbol, price: price, previousClose: prev, closes: closes)
     }
 
-    /// Fetch all symbols concurrently; returns whatever succeeded.
-    public static func fetchAll(symbols: [String]) async -> [String: Quote] {
-        await withTaskGroup(of: Quote?.self) { group in
-            for s in Set(symbols) { group.addTask { await fetch(symbol: s) } }
+    /// Fetch all symbols with bounded concurrency + one retry — a 400-symbol
+    /// import must not fire 400 simultaneous requests (Yahoo rate-limits and
+    /// the failures silently zero the totals).
+    public static func fetchAll(symbols: [String], maxConcurrent: Int = 8) async -> [String: Quote] {
+        let unique = Array(Set(symbols))
+        guard !unique.isEmpty else { return [:] }
+        return await withTaskGroup(of: Quote?.self) { group in
+            var it = unique.makeIterator()
+            for _ in 0..<min(maxConcurrent, unique.count) {
+                if let s = it.next() { group.addTask { await fetchWithRetry(symbol: s) } }
+            }
             var out: [String: Quote] = [:]
-            for await q in group { if let q { out[q.symbol] = q } }
+            for await q in group {
+                if let q { out[q.symbol] = q }
+                if let s = it.next() { group.addTask { await fetchWithRetry(symbol: s) } }
+            }
             return out
         }
+    }
+
+    static func fetchWithRetry(symbol: String) async -> Quote? {
+        if let q = await fetch(symbol: symbol) { return q }
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        return await fetch(symbol: symbol)
     }
 
     // MARK: - History (invested-date detection + since-buy timelines)

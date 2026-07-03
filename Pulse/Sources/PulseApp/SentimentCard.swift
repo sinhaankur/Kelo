@@ -42,6 +42,31 @@ struct SentimentCard: View {
                             Spacer()
                         }
                     }
+                    // World dynamics — where geopolitics shows up in numbers:
+                    // gold + oil (stress), the dollar, the US 10-year yield.
+                    if !s.macro.isEmpty {
+                        HStack(spacing: 8) {
+                            Text("WORLD")
+                                .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                                .tracking(1).foregroundStyle(.tertiary)
+                            ForEach(s.macro.indices, id: \.self) { i in
+                                let m = s.macro[i]
+                                HStack(spacing: 4) {
+                                    Text(m.name)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                    Text(m.levelLabel)
+                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                    Text(String(format: "%+.1f%%", m.dayPct))
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(m.dayPct >= 0 ? Color.green : Color.red)
+                                }
+                                .padding(.horizontal, 6).padding(.vertical, 3)
+                                .background(Capsule().fill(Color.primary.opacity(0.05)))
+                            }
+                            Spacer()
+                        }
+                    }
                     if !s.headlines.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(s.headlines.indices, id: \.self) { i in

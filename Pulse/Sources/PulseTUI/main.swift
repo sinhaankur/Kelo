@@ -13,6 +13,10 @@ import PulseKit
 //   pulse-tui --no-color      plain output
 
 let args = CommandLine.arguments.dropFirst()
+if args.contains("--version") {
+    print("\(PulseInfo.name) \(PulseInfo.version) — \(PulseInfo.tagline)")
+    exit(0)
+}
 if args.contains("--help") || args.contains("-h") {
     print("""
     pulse-tui — private portfolio dashboard (macOS + Linux, on-device)
@@ -20,6 +24,7 @@ if args.contains("--help") || args.contains("-h") {
       --analyze        add a local-LLM (Ollama) read, grounded in live data
       --import <csv>   merge broker CSV (symbol/quantity/cost[/date]) into portfolio.json
       --no-color       disable ANSI colors
+      --version        print version
     """)
     exit(0)
 }
@@ -140,14 +145,20 @@ func render() async {
 
     var out: [String] = []
     let stamp = Date().formatted(date: .abbreviated, time: .shortened)
-    out.append(Ansi.header("PULSE") + Ansi.dim("  \(stamp) · on-device · quotes delayed"))
+    out.append(Ansi.header("PULSE") + Ansi.dim("  v\(PulseInfo.version) · \(stamp) · on-device · quotes delayed"))
+    let holdingSyms = Set(portfolio.holdings.map(\.symbol))
+    let quoted = holdingSyms.filter { quotes[$0] != nil }.count
+    if quoted < holdingSyms.count {
+        out.append(Ansi.yellow("⚠ quotes \(quoted)/\(holdingSyms.count) holdings — unquoted (likely delisted/invalid) count as $0"))
+    }
     out.append("\(Ansi.bold(usd(totalValue)))  today \(signed(dayPL, "%+.0f"))\(Ansi.dim(" (holdings)"))  all-time \(signed(allTime, "%+.0f")) \(signed(allTimePct, "(%+.1f%%)"))")
     if let g = analysis.history, g.values.count >= 2,
        let first = g.dates.first, let lastValue = g.values.last, let lastCost = g.costs.last {
         let gain = lastValue - lastCost
+        let coverage = g.covered < g.total ? " · covers \(g.covered)/\(g.total) positions" : ""
         out.append(Ansi.dim("growth since \(isoDateString(first)) (holdings): ")
             + spark(g.values, width: 48)
-            + "  " + signed(gain, "%+.0f") + Ansi.dim(" vs cost deployed"))
+            + "  " + signed(gain, "%+.0f") + Ansi.dim(" vs cost deployed\(coverage)"))
     }
     out.append("")
 
@@ -155,6 +166,11 @@ func render() async {
     out.append(Ansi.header("GLOBAL SENTIMENT") + Ansi.dim("  " + sentiment.summary))
     if !sentiment.indices.isEmpty {
         out.append("  " + sentiment.indices.map { "\(Ansi.dim($0.name)) \(signed($0.dayPct, "%+.1f%%"))" }
+            .joined(separator: "   "))
+    }
+    if !sentiment.macro.isEmpty {
+        out.append("  " + Ansi.dim("world: ") + sentiment.macro
+            .map { "\(Ansi.dim($0.name)) \($0.levelLabel) \(signed($0.dayPct, "%+.1f%%"))" }
             .joined(separator: "   "))
     }
     for h in sentiment.headlines.prefix(4) {
@@ -261,7 +277,7 @@ func render() async {
                                          benchmark: analysis.benchmark)
         out.append(Ansi.header("PAPER TRADES") + Ansi.dim("  calls scored against reality"))
         for r in reviews {
-            var line = "  " + pad("\(r.trade.side) \(r.trade.symbol)", 12)
+            var line = "  " + pad("\(r.trade.side) \(r.trade.symbol)", 15)
             line += pad(r.trade.date, 12)
             line += pad("in " + usd(r.trade.entryPrice), 13, right: true)
             line += pad(r.currentPrice.map { "now " + usd($0) } ?? "now …", 14, right: true)

@@ -8,7 +8,10 @@ struct GrowthCard: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        Card(title: "GROWTH", trailing: "value vs cost deployed · options excluded") {
+        let coverage: String? = model.portfolioHistory.flatMap { h in
+            h.covered < h.total ? "covers \(h.covered) of \(h.total) positions — others lack price history" : nil
+        }
+        Card(title: "GROWTH", trailing: coverage ?? "value vs cost deployed · options excluded") {
             if let h = model.portfolioHistory, h.values.count >= 2,
                let first = h.dates.first, let lastValue = h.values.last, let lastCost = h.costs.last {
                 VStack(alignment: .leading, spacing: 6) {

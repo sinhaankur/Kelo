@@ -63,6 +63,11 @@ final class AnalysisModel: ObservableObject {
                     lines.append(s.indices.map { "\($0.name) \(String(format: "%+.1f%%", $0.dayPct))" }
                         .joined(separator: ", "))
                 }
+                if !s.macro.isEmpty {
+                    lines.append("world dynamics: " + s.macro
+                        .map { "\($0.name) \($0.levelLabel) (\(String(format: "%+.1f%%", $0.dayPct)) today)" }
+                        .joined(separator: ", "))
+                }
                 for h in s.headlines.prefix(5) {
                     lines.append("headline [\(h.source)]: \(h.title)")
                 }

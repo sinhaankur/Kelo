@@ -19,9 +19,26 @@ public struct GlobalSentiment {
         public let source: String
         public let date: Date
     }
+    /// World-dynamics gauge — a real level + day move (gold, oil, dollar,
+    /// yields): the numbers geopolitics actually shows up in.
+    public struct MacroGauge {
+        public let name: String
+        public let level: Double
+        public let dayPct: Double
+        public let unit: String
+
+        public var levelLabel: String {
+            switch unit {
+            case "$": return usd(level)
+            case "%": return String(format: "%.2f%%", level)
+            default: return String(format: "%.1f", level)
+            }
+        }
+    }
 
     public let vix: Double?
     public let indices: [IndexMove]
+    public let macro: [MacroGauge]
     public let cryptoFearGreed: Int?
     public let cryptoFearGreedLabel: String?
     public let headlines: [Headline]
@@ -63,9 +80,20 @@ public enum SentimentService {
         ("^HSI", "Hang Seng"),
     ]
 
+    // World-dynamics gauges: gold + oil (geopolitical stress), the dollar
+    // index (global money flow), the US 10-year yield (rates). Yahoo quotes
+    // ^TNX directly in percent (verified live: ~4.5, not 45).
+    static let macroSymbols: [(symbol: String, name: String, unit: String, divisor: Double)] = [
+        ("GC=F", "Gold", "$", 1),
+        ("CL=F", "Oil WTI", "$", 1),
+        ("DX-Y.NYB", "Dollar DXY", "", 1),
+        ("^TNX", "US 10Y", "%", 1),
+    ]
+
     public static func fetch(finnhubKey: String?) async -> GlobalSentiment {
         async let vixQuote = QuoteService.fetch(symbol: "^VIX")
         async let indexQuotes = QuoteService.fetchAll(symbols: indexSymbols.map(\.symbol))
+        async let macroQuotes = QuoteService.fetchAll(symbols: macroSymbols.map(\.symbol))
         async let fearGreed = fetchCryptoFearGreed()
         async let news = fetchHeadlines(key: finnhubKey)
 
@@ -73,9 +101,17 @@ public enum SentimentService {
         let indices = indexSymbols.compactMap { entry in
             iq[entry.symbol].map { GlobalSentiment.IndexMove(name: entry.name, dayPct: $0.dayChangePct) }
         }
+        let mq = await macroQuotes
+        let macro = macroSymbols.compactMap { entry in
+            mq[entry.symbol].map {
+                GlobalSentiment.MacroGauge(name: entry.name, level: $0.price / entry.divisor,
+                                           dayPct: $0.dayChangePct, unit: entry.unit)
+            }
+        }
         let fg = await fearGreed
         return GlobalSentiment(vix: await vixQuote?.price,
                                indices: indices,
+                               macro: macro,
                                cryptoFearGreed: fg?.value,
                                cryptoFearGreedLabel: fg?.label,
                                headlines: await news,
