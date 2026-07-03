@@ -4,6 +4,7 @@ import SwiftUI
 final class AppModel: ObservableObject {
     @Published var portfolio = Portfolio.load()
     @Published var quotes: [String: Quote] = [:]
+    @Published var optionQuotes: [String: OptionsService.OptionQuote] = [:]
     @Published var lastRefresh: Date? = nil
     @Published var refreshing = false
 
@@ -21,14 +22,27 @@ final class AppModel: ObservableObject {
         let symbols = portfolio.holdings.map(\.symbol) + portfolio.calls.map(\.underlying)
         guard !symbols.isEmpty else { return }
         refreshing = true
+        let callUnderlyings = portfolio.calls.map(\.underlying)
         Task {
-            let q = await QuoteService.fetchAll(symbols: symbols)
+            async let stocks = QuoteService.fetchAll(symbols: symbols)
+            async let chains = OptionsService.fetchAll(underlyings: callUnderlyings)
+            let (q, oq) = await (stocks, chains)
             await MainActor.run {
                 self.quotes = q
+                self.optionQuotes = oq
                 self.lastRefresh = Date()
                 self.refreshing = false
             }
         }
+    }
+
+    /// Market value of a call position: CBOE mark × 100 × contracts; falls
+    /// back to intrinsic (from spot) when the chain has no quote.
+    func callValue(_ c: CallPosition) -> Double? {
+        if let oq = optionQuotes[OptionsService.occSymbol(for: c)], oq.mark > 0 {
+            return oq.mark * 100 * Double(c.contracts)
+        }
+        return (quotes[c.underlying]?.price).map { c.intrinsic(at: $0) }
     }
 
     // Totals
@@ -36,7 +50,7 @@ final class AppModel: ObservableObject {
         portfolio.holdings.reduce(0) { acc, h in
             acc + (quotes[h.symbol]?.price ?? 0) * h.quantity
         } + portfolio.calls.reduce(0) { acc, c in
-            acc + ((quotes[c.underlying]?.price).map { c.intrinsic(at: $0) } ?? 0)
+            acc + (callValue(c) ?? 0)
         }
     }
     var totalCost: Double {
@@ -127,11 +141,13 @@ struct ContentView: View {
             Grid(alignment: .trailing, horizontalSpacing: 14, verticalSpacing: 6) {
                 GridRow {
                     gridHead("UNDERLYING", leading: true); gridHead("STRIKE"); gridHead("EXPIRY")
-                    gridHead("DTE"); gridHead("SPOT"); gridHead("INTRINSIC"); gridHead("P/L")
+                    gridHead("DTE"); gridHead("SPOT"); gridHead("MARKET"); gridHead("TIME VAL"); gridHead("P/L")
                 }
                 ForEach(model.portfolio.calls) { c in
                     let q = model.quotes[c.underlying]
                     let intrinsic = q.map { c.intrinsic(at: $0.price) }
+                    let market = model.callValue(c)
+                    let hasChainQuote = model.optionQuotes[OptionsService.occSymbol(for: c)]?.mark ?? 0 > 0
                     GridRow {
                         Text("\(c.underlying) ×\(c.contracts)").font(.system(.body, design: .monospaced)).gridColumnAlignment(.leading)
                         Text(usd(c.strike)).mono()
@@ -139,13 +155,17 @@ struct ContentView: View {
                         Text(c.daysToExpiry.map { "\($0)d" } ?? "—").mono()
                             .foregroundStyle((c.daysToExpiry ?? 99) < 14 ? .orange : .secondary)
                         Text(q.map { usd($0.price) } ?? "…").mono()
-                        Text(intrinsic.map(usd) ?? "—").mono()
-                        Text(intrinsic.map { usd($0 - c.premiumPaid) } ?? "—").mono()
-                            .foregroundStyle((intrinsic ?? 0) - c.premiumPaid >= 0 ? .green : .red)
+                        Text(market.map(usd) ?? "—").mono()
+                            .foregroundStyle(hasChainQuote ? .primary : .secondary)
+                        Text((market != nil && intrinsic != nil && hasChainQuote)
+                             ? usd(market! - intrinsic!) : "—").mono()
+                            .foregroundStyle(.secondary)
+                        Text(market.map { usd($0 - c.premiumPaid) } ?? "—").mono()
+                            .foregroundStyle((market ?? 0) - c.premiumPaid >= 0 ? .green : .red)
                     }
                 }
             }
-            Text("Intrinsic only — time value needs an options feed (later).")
+            Text("Options: CBOE delayed quotes (mark = bid/ask mid). Grey market value = no chain quote, showing intrinsic.")
                 .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
         }
     }
