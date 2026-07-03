@@ -105,7 +105,8 @@ func render() async {
     let quotes = await quotesTask
     let chains = await chainsTask
     let sentiment = await sentimentTask
-    let timelines = await TimelineService.timelines(for: portfolio.holdings, quotes: quotes)
+    let analysis = await TimelineService.analyze(holdings: portfolio.holdings, quotes: quotes)
+    let timelines = analysis.timelines
 
     func callValue(_ c: CallPosition) -> Double? {
         if let oq = chains[OptionsService.occSymbol(for: c)], oq.mark > 0 {
@@ -129,6 +130,13 @@ func render() async {
     let stamp = Date().formatted(date: .abbreviated, time: .shortened)
     out.append(Ansi.header("PULSE") + Ansi.dim("  \(stamp) · on-device · quotes delayed"))
     out.append("\(Ansi.bold(usd(totalValue)))  today \(signed(dayPL, "%+.0f"))\(Ansi.dim(" (holdings)"))  all-time \(signed(allTime, "%+.0f")) \(signed(allTimePct, "(%+.1f%%)"))")
+    if let g = analysis.history, g.values.count >= 2,
+       let first = g.dates.first, let lastValue = g.values.last, let lastCost = g.costs.last {
+        let gain = lastValue - lastCost
+        out.append(Ansi.dim("growth since \(isoDateString(first)) (holdings): ")
+            + spark(g.values, width: 48)
+            + "  " + signed(gain, "%+.0f") + Ansi.dim(" vs cost deployed"))
+    }
     out.append("")
 
     // Global sentiment — sourced numbers only.

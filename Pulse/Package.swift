@@ -10,6 +10,11 @@ var targets: [Target] = [
         dependencies: ["PulseKit"],
         path: "Sources/PulseTUI"
     ),
+    .testTarget(
+        name: "PulseKitTests",
+        dependencies: ["PulseKit"],
+        path: "Tests/PulseKitTests"
+    ),
 ]
 var products: [Product] = [
     .executable(name: "pulse-tui", targets: ["PulseTUI"]),

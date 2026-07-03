@@ -8,6 +8,7 @@ final class AppModel: ObservableObject {
     @Published var quotes: [String: Quote] = [:]
     @Published var optionQuotes: [String: OptionsService.OptionQuote] = [:]
     @Published var timelines: [String: PositionTimeline] = [:]
+    @Published var portfolioHistory: PortfolioHistory? = nil
     @Published var sentiment: GlobalSentiment? = nil
     @Published var lastRefresh: Date? = nil
     @Published var refreshing = false
@@ -20,6 +21,7 @@ final class AppModel: ObservableObject {
     private var lastSentimentFetch: Date? = nil
 
     func start() {
+        guard timer == nil else { return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -57,8 +59,9 @@ final class AppModel: ObservableObject {
             .map { "\($0.symbol)|\($0.costBasis)|\($0.acquired ?? "")" }
             .joined(separator: ",")
         guard sig != timelineSignature else { return }
-        let t = await TimelineService.timelines(for: portfolio.holdings, quotes: quotes)
-        self.timelines = t
+        let analysis = await TimelineService.analyze(holdings: portfolio.holdings, quotes: quotes)
+        self.timelines = analysis.timelines
+        self.portfolioHistory = analysis.history
         self.timelineSignature = sig
     }
 
@@ -119,21 +122,24 @@ final class AppModel: ObservableObject {
 // MARK: - Root
 
 struct ContentView: View {
-    @StateObject private var model = AppModel()
+    @ObservedObject var model: AppModel
+    @ObservedObject var lock: LockModel
     @AppStorage("themeMode") private var themeModeRaw = ThemeMode.auto.rawValue
 
     var body: some View {
         let isDark = (ThemeMode(rawValue: themeModeRaw) ?? .auto).isDark(at: model.tick)
-        LockGate { lock in
+        LockGate(lock: lock) { lock in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     HeaderCard(model: model, lock: lock)
                     SentimentCard(model: model)
+                    GrowthCard(model: model)
                     AllocationCard(model: model)
                     StatsCard(model: model)
                     HoldingsCard(model: model)
                     TimelineCard(model: model)
                     if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
+                    TradeDraftCard(model: model)
                     AnalysisCard(app: model)
                     footer
                 }

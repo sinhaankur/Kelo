@@ -22,7 +22,17 @@ Finnhub market headlines (key in `config.json`, see `config.example.json`).
 Positions: edit portfolio.json (seeded from the example on first run) or
 import a broker CSV. `acquired` dates are optional — when missing, Pulse
 estimates the invested date from where price history last crossed your cost
-basis and labels it `est.`; it never presents the guess as fact.
+basis and labels it `est.`; it never presents the guess as fact. The GROWTH
+card reconstructs the account's value day by day from those dates (holdings
+only; options have no historical marks).
+
+Trade Draft (app): drafts a buy/sell against `cashAvailable` from
+config.json — share math, post-trade concentration, realized P/L — and
+copies the summary for your broker. Pulse NEVER places orders; execution
+stays in the brokerage behind its own confirmations.
 
 Appearance follows the clock (light 07–19, dark otherwise) with a manual
-override in the app header.
+override in the app header. A menu-bar pulse shows the day move; dollar
+figures appear only while the app is unlocked.
+
+Tests: `cd Pulse && swift test` (runs on macOS and Linux).

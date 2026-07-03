@@ -36,7 +36,8 @@ final class LockModel: ObservableObject {
 }
 
 struct LockGate<Content: View>: View {
-    @StateObject var lock = LockModel()
+    // Injected — the app owns the model so the menu bar sees the same state.
+    @ObservedObject var lock: LockModel
     @ViewBuilder var content: (LockModel) -> Content
 
     var body: some View {

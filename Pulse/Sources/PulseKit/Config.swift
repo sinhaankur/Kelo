@@ -6,11 +6,16 @@ public struct AppConfig: Codable {
     public var finnhubApiKey: String?
     public var llmEndpoint: String?
     public var llmModel: String?
+    /// Cash sitting in the brokerage, for the Trade Draft card's affordability
+    /// math. Pulse only reads it — it never places orders anywhere.
+    public var cashAvailable: Double?
 
-    public init(finnhubApiKey: String? = nil, llmEndpoint: String? = nil, llmModel: String? = nil) {
+    public init(finnhubApiKey: String? = nil, llmEndpoint: String? = nil,
+                llmModel: String? = nil, cashAvailable: Double? = nil) {
         self.finnhubApiKey = finnhubApiKey
         self.llmEndpoint = llmEndpoint
         self.llmModel = llmModel
+        self.cashAvailable = cashAvailable
     }
 
     public static var fileURL: URL {
