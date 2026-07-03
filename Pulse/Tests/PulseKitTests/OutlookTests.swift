@@ -48,6 +48,66 @@ final class OutlookStatsTests: XCTestCase {
     }
 }
 
+final class VerdictTests: XCTestCase {
+    private func timeline(symbol: String, days: Int, totalPct: Double, annPct: Double?,
+                          benchPct: Double?, fromHigh: Double?, vsMa200: Double?) -> PositionTimeline {
+        PositionTimeline(symbol: symbol, acquired: Date(timeIntervalSinceNow: -Double(days) * 86_400),
+                         estimated: false, holdingDays: days, totalReturnPct: totalPct,
+                         annualizedPct: annPct, closesSince: [], benchmarkPct: benchPct,
+                         pctFromAllTimeHigh: fromHigh, vsMa200Pct: vsMa200)
+    }
+
+    func testTwoMarkersMakeAnExitCandidate() {
+        // 80% off its high + below 200dma + thesis failed (−70%) = plain call.
+        let h = Holding(symbol: "DYING", quantity: 100, costBasis: 10)
+        let q = Quote(symbol: "DYING", price: 3, previousClose: 3, closes: [])
+        let t = timeline(symbol: "DYING", days: 800, totalPct: -70, annPct: -40,
+                         benchPct: 25, fromHigh: -80, vsMa200: -20)
+        let v = ReviewService.verdicts(holdings: [h], quotes: ["DYING": q],
+                                       timelines: ["DYING": t], fxRates: [:])
+        XCTAssertEqual(v[0].call, .exit)
+        XCTAssertGreaterThanOrEqual(v[0].reasons.count, 2)
+    }
+
+    func testHealthyPositionHolds() {
+        let h = Holding(symbol: "FINE", quantity: 10, costBasis: 100)
+        let q = Quote(symbol: "FINE", price: 130, previousClose: 129, closes: [])
+        let t = timeline(symbol: "FINE", days: 500, totalPct: 30, annPct: 21,
+                         benchPct: 20, fromHigh: -4, vsMa200: 6)
+        let v = ReviewService.verdicts(holdings: [h], quotes: ["FINE": q],
+                                       timelines: ["FINE": t], fxRates: [:])
+        XCTAssertEqual(v[0].call, .hold)
+        XCTAssertTrue(v[0].reasons.isEmpty)
+    }
+
+    func testOneMarkerMeansReview() {
+        let h = Holding(symbol: "MEH", quantity: 10, costBasis: 100)
+        let q = Quote(symbol: "MEH", price: 90, previousClose: 90, closes: [])
+        // Only the laggard marker fires (held 2y, way behind the index).
+        let t = timeline(symbol: "MEH", days: 730, totalPct: -10, annPct: -5,
+                         benchPct: 40, fromHigh: -30, vsMa200: 2)
+        let v = ReviewService.verdicts(holdings: [h], quotes: ["MEH": q],
+                                       timelines: ["MEH": t], fxRates: [:])
+        XCTAssertEqual(v[0].call, .review)
+        XCTAssertEqual(v[0].reasons.count, 1)
+    }
+
+    func testDustAggregationAndLaggardImpactMath() {
+        var holdings: [Holding] = []
+        var quotes: [String: Quote] = [:]
+        for i in 0..<12 {
+            let s = "D\(i)"
+            holdings.append(Holding(symbol: s, quantity: 1, costBasis: 10))
+            quotes[s] = Quote(symbol: s, price: 10, previousClose: 10, closes: [])
+        }
+        holdings.append(Holding(symbol: "BIG", quantity: 100, costBasis: 90))
+        quotes["BIG"] = Quote(symbol: "BIG", price: 100, previousClose: 100, closes: [])
+        let items = ReviewService.review(holdings: holdings, quotes: quotes,
+                                         timelines: [:], fxRates: [:])
+        XCTAssertTrue(items.contains { $0.kind == .dust })
+    }
+}
+
 final class BrokerageImportTests: XCTestCase {
     func testYahooSymbolMapping() {
         XCTAssertEqual(CsvImporter.yahooSymbol(raw: "SHOP", exchange: "TSX", securityType: "EQUITY", bookCurrency: "CAD"), "SHOP.TO")

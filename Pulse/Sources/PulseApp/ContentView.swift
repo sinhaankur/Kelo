@@ -14,6 +14,8 @@ final class AppModel: ObservableObject {
     @Published var paperTrades: [PaperTrade] = []
     @Published var paperReviews: [PaperReview] = []
     @Published var watchlist: [String] = []
+    @Published var reviewItems: [ReviewItem] = []
+    @Published var verdicts: [PositionVerdict] = []
     @Published var snapshots: [DailySnapshot] = []
     @Published var lastRefresh: Date? = nil
     @Published var refreshing = false
@@ -123,6 +125,10 @@ final class AppModel: ObservableObject {
     private func recomputePaperReviews() {
         paperReviews = PaperLedger.review(paperTrades, quotes: quotes,
                                           benchmark: benchmarkHistory)
+        reviewItems = ReviewService.review(holdings: portfolio.holdings, quotes: quotes,
+                                           timelines: timelines, fxRates: fxRates)
+        verdicts = ReviewService.verdicts(holdings: portfolio.holdings, quotes: quotes,
+                                          timelines: timelines, fxRates: fxRates)
     }
 
     func logPaperTrade(_ trade: PaperTrade) {
@@ -323,6 +329,8 @@ struct ContentView: View {
                             TimelineCard(model: model)
                             if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
                         case .analysis:
+                            VerdictsCard(model: model)
+                            ReviewCard(model: model)
                             LookupCard(model: model)
                             StatsCard(model: model)
                             AnalysisCard(app: model)

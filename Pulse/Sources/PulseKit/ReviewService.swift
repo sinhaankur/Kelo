@@ -1,0 +1,175 @@
+import Foundation
+
+/// Rule-based portfolio review — the honest version of "what should I buy or
+/// sell": deterministic structural findings ranked by dollar impact, each
+/// with the numbers that justify it and each testable as a paper trade.
+/// No market prediction anywhere; these rules only measure what already is.
+public struct ReviewItem {
+    public enum Kind: String {
+        case concentration  // one position dominates
+        case laggard        // long-held, far behind the index
+        case dust           // positions too small to matter
+        case dead           // no live quote — delisted or bad symbol
+    }
+    public let kind: Kind
+    public let symbol: String?
+    public let headline: String
+    public let detail: String
+    /// Ranking key, in the display currency — how many dollars this finding
+    /// is about. Bigger = worth attention first.
+    public let dollarImpact: Double
+}
+
+public enum ReviewService {
+    public static func review(holdings: [Holding],
+                              quotes: [String: Quote],
+                              timelines: [String: PositionTimeline],
+                              fxRates: [String: Double]) -> [ReviewItem] {
+        func fx(_ currency: String?) -> Double { fxRates[currency ?? "USD"] ?? 1 }
+        func value(_ h: Holding) -> Double {
+            (quotes[h.symbol].map { $0.price * fx($0.currency) } ?? 0) * h.quantity
+        }
+        func cost(_ h: Holding) -> Double { h.costBasis * h.quantity * fx(h.currency) }
+
+        let total = holdings.reduce(0.0) { $0 + value($1) }
+        guard total > 0 else { return [] }
+        var items: [ReviewItem] = []
+
+        // CONCENTRATION — a single position that can sink the whole account.
+        for h in holdings {
+            let v = value(h)
+            let pct = v / total * 100
+            if pct > 40 {
+                items.append(ReviewItem(
+                    kind: .concentration, symbol: h.symbol,
+                    headline: "\(h.symbol) is \(Int(pct))% of the portfolio",
+                    detail: "\(usd(v)) of \(usd(total)) rides on one position — its bad day is the account's bad day. Consider whether that sizing is a decision or an accident.",
+                    dollarImpact: v))
+            }
+        }
+
+        // LAGGARDS — held ≥1y and ≥10pp/yr behind the S&P over the SAME
+        // window. The impact number is the switching math: what the same
+        // dollars did in the index instead.
+        var laggards: [ReviewItem] = []
+        for h in holdings {
+            guard let t = timelines[h.symbol], t.holdingDays >= 365,
+                  let ann = t.annualizedPct, let bench = t.benchmarkPct else { continue }
+            let benchAnn = (pow(1 + bench / 100, 365.25 / Double(t.holdingDays)) - 1) * 100
+            guard ann <= benchAnn - 10 else { continue }
+            let c = cost(h)
+            let foregone = c * (bench - t.totalReturnPct) / 100
+            guard foregone > 0 else { continue }
+            laggards.append(ReviewItem(
+                kind: .laggard, symbol: h.symbol,
+                headline: "\(h.symbol) held \(t.heldLabel)\(t.estimated ? " (est.)" : ""): \(String(format: "%+.1f", ann))%/y vs S&P \(String(format: "%+.1f", benchAnn))%/y",
+                detail: "the same \(usd(c)) in the index over that window would be \(usd(foregone)) ahead. Not a sell order — a question: what do you know about \(h.symbol) that the market doesn't?",
+                dollarImpact: foregone))
+        }
+        items += laggards.sorted { $0.dollarImpact > $1.dollarImpact }.prefix(5)
+
+        // DUST — positions too small to move the account but plenty big
+        // enough to fragment attention. One aggregate finding.
+        let dustThreshold = max(25, total * 0.003)
+        let dust = holdings.filter { let v = value($0); return v > 0 && v < dustThreshold }
+        if dust.count >= 10 {
+            let dustValue = dust.reduce(0.0) { $0 + value($1) }
+            items.append(ReviewItem(
+                kind: .dust, symbol: nil,
+                headline: "\(dust.count) positions under \(usd(dustThreshold)) each — \(usd(dustValue)) total (\(Int(dustValue / total * 100))% of the account)",
+                detail: "even a double in any of them barely registers, but each one costs attention. Consolidating dust into your few real convictions is the most reliable 'increase value' move available: it changes nothing about the market and everything about whether you can actually manage this portfolio.",
+                dollarImpact: dustValue))
+        }
+
+        // DEAD — no live quote: delisted, renamed, or a bad symbol. The
+        // book value tied up here is unknown until verified in the broker.
+        let dead = holdings.filter { quotes[$0.symbol] == nil }
+        if !dead.isEmpty {
+            let deadCost = dead.reduce(0.0) { $0 + cost($1) }
+            let names = dead.prefix(4).map(\.symbol).joined(separator: ", ")
+            items.append(ReviewItem(
+                kind: .dead, symbol: nil,
+                headline: "\(dead.count) position\(dead.count == 1 ? "" : "s") with no live quote (\(names)\(dead.count > 4 ? ", …" : ""))",
+                detail: "\(usd(deadCost)) of book value can't be priced — delisted, renamed, or a symbol Pulse can't map. Verify these in the brokerage; they show as $0 here until then.",
+                dollarImpact: deadCost))
+        }
+
+        return items.sorted { $0.dollarImpact > $1.dollarImpact }
+    }
+}
+
+// MARK: - Per-position verdicts
+
+/// A committed call per position — direction, not ambiguity. Grounded ONLY
+/// in observable decay, never price prediction: a chart 70% off its high and
+/// under its 200-day for a position that has lagged the index for years is
+/// a condition, and conditions get named plainly.
+public struct PositionVerdict {
+    public enum Call: String {
+        case exit = "EXIT CANDIDATE"
+        case review = "REVIEW"
+        case hold = "HOLD"
+    }
+    public let symbol: String
+    public let call: Call
+    /// The specific markers that fired, each with its number.
+    public let reasons: [String]
+    public let valueAtStake: Double
+}
+
+extension ReviewService {
+    /// Verdict rules (count the decay markers):
+    ///  · ≥70% below the multi-year high AND below the 200-day average
+    ///  · held ≥1y and ≥15pp/yr behind the S&P over the same window
+    ///  · total return ≤ −60% (the original thesis has failed)
+    ///  · penny territory (price < $1 native)
+    /// 2+ markers → EXIT CANDIDATE. 1 → REVIEW. 0 → HOLD.
+    public static func verdicts(holdings: [Holding],
+                                quotes: [String: Quote],
+                                timelines: [String: PositionTimeline],
+                                fxRates: [String: Double]) -> [PositionVerdict] {
+        func fx(_ currency: String?) -> Double { fxRates[currency ?? "USD"] ?? 1 }
+        var out: [PositionVerdict] = []
+        for h in holdings {
+            guard let q = quotes[h.symbol] else { continue } // dead → REVIEW list handles
+            let value = q.price * fx(q.currency) * h.quantity
+            var reasons: [String] = []
+
+            if let t = timelines[h.symbol] {
+                if let fromHigh = t.pctFromAllTimeHigh, let ma = t.vsMa200Pct,
+                   fromHigh <= -70, ma < 0 {
+                    reasons.append("broken chart: \(String(format: "%.0f", fromHigh))% from its high and below the 200-day average")
+                }
+                if t.holdingDays >= 365, let ann = t.annualizedPct, let bench = t.benchmarkPct {
+                    let benchAnn = (pow(1 + bench / 100, 365.25 / Double(t.holdingDays)) - 1) * 100
+                    if ann <= benchAnn - 15 {
+                        reasons.append("dead weight: \(String(format: "%+.1f", ann))%/y over \(t.heldLabel) vs S&P \(String(format: "%+.1f", benchAnn))%/y")
+                    }
+                }
+                if t.totalReturnPct <= -60 {
+                    reasons.append("thesis failed: \(String(format: "%.0f", t.totalReturnPct))% since buying")
+                }
+            }
+            if q.price < 1 {
+                reasons.append("penny territory: trading at \(String(format: "%.4f", q.price)) \(q.currency)")
+            }
+
+            let call: PositionVerdict.Call = reasons.count >= 2 ? .exit
+                : reasons.count == 1 ? .review : .hold
+            out.append(PositionVerdict(symbol: h.symbol, call: call,
+                                       reasons: reasons, valueAtStake: value))
+        }
+        return out.sorted {
+            if $0.call != $1.call { return rank($0.call) < rank($1.call) }
+            return $0.valueAtStake > $1.valueAtStake
+        }
+    }
+
+    private static func rank(_ c: PositionVerdict.Call) -> Int {
+        switch c {
+        case .exit: return 0
+        case .review: return 1
+        case .hold: return 2
+        }
+    }
+}

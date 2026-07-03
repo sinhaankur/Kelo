@@ -282,6 +282,34 @@ func render() async {
         out.append("")
     }
 
+    // Verdicts — a committed, condition-based call per position.
+    let verdicts = ReviewService.verdicts(holdings: portfolio.holdings, quotes: quotes,
+                                          timelines: timelines, fxRates: fxRates)
+    let exits = verdicts.filter { $0.call == .exit }
+    let reviewsV = verdicts.filter { $0.call == .review }
+    if !verdicts.isEmpty {
+        out.append(Ansi.header("VERDICTS")
+            + Ansi.dim("  \(Ansi.red("\(exits.count) exit candidates"))\(Ansi.dim(" (\(usd(exits.reduce(0) { $0 + $1.valueAtStake })))")) · \(reviewsV.count) review · \(verdicts.count - exits.count - reviewsV.count) hold"))
+        for v in exits.prefix(8) {
+            out.append("  " + Ansi.red("EXIT? ") + pad(Ansi.bold(v.symbol), 12)
+                + Ansi.dim(v.reasons.joined(separator: " · "))
+                + "  " + Ansi.dim(usd(v.valueAtStake)))
+        }
+        if exits.count > 8 { out.append("  " + Ansi.dim("… and \(exits.count - 8) more exit candidates (see the app)")) }
+        out.append("")
+    }
+
+    // Structural review — dollars-at-stake findings.
+    let reviewItems = ReviewService.review(holdings: portfolio.holdings, quotes: quotes,
+                                           timelines: timelines, fxRates: fxRates)
+    if !reviewItems.isEmpty {
+        out.append(Ansi.header("REVIEW") + Ansi.dim("  structural findings, ranked by dollars at stake"))
+        for item in reviewItems.prefix(5) {
+            out.append("  " + Ansi.yellow("▸ ") + item.headline + Ansi.dim("  (\(usd(item.dollarImpact)))"))
+        }
+        out.append("")
+    }
+
     // Paper trades — the calls, scored so far. No real orders, ever.
     if !paperTrades.isEmpty {
         let reviews = PaperLedger.review(paperTrades, quotes: quotes,

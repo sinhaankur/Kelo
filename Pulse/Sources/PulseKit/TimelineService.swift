@@ -18,6 +18,11 @@ public struct PositionTimeline {
     public let closesSince: [Double]
     /// S&P 500 total return over the same window, for an honest benchmark.
     public let benchmarkPct: Double?
+    /// Distance from the highest close in the full fetched history (≤0) —
+    /// the "how broken is this chart" number.
+    public let pctFromAllTimeHigh: Double?
+    /// Price vs the 200-day average — below for a long time = broken trend.
+    public let vsMa200Pct: Double?
 
     public var acquiredLabel: String {
         (estimated ? "~" : "") + isoDateString(acquired)
@@ -204,10 +209,21 @@ public enum TimelineService {
            let bN = benchmark.last?.close, b0 > 0 {
             benchPct = (bN - b0) / b0 * 100
         }
+        let allCloses = history.map(\.close)
+        var fromHigh: Double? = nil
+        if let hi = allCloses.max(), hi > 0 {
+            fromHigh = (price - hi) / hi * 100
+        }
+        var vsMa200: Double? = nil
+        if allCloses.count >= 200 {
+            let ma = allCloses.suffix(200).reduce(0, +) / 200
+            if ma > 0 { vsMa200 = (price - ma) / ma * 100 }
+        }
         return PositionTimeline(symbol: holding.symbol, acquired: acquired,
                                 estimated: estimated, holdingDays: days,
                                 totalReturnPct: totalPct, annualizedPct: annualized,
-                                closesSince: since, benchmarkPct: benchPct)
+                                closesSince: since, benchmarkPct: benchPct,
+                                pctFromAllTimeHigh: fromHigh, vsMa200Pct: vsMa200)
     }
 
     /// Most recent day the close crossed the cost basis — the best keyless
