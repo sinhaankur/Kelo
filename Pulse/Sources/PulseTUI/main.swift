@@ -282,6 +282,18 @@ func render() async {
         out.append("")
     }
 
+    // Hidden concentration — correlated cluster surfaced as one bet.
+    let clusters = ClusterService.clusters(holdings: portfolio.holdings,
+                                           quotes: quotes, fxRates: fxRates)
+    if !clusters.isEmpty {
+        out.append(Ansi.header("HIDDEN CONCENTRATION"))
+        for c in clusters {
+            out.append("  " + Ansi.red("▸ \(c.name): \(Int(c.pct))% of the portfolio")
+                + Ansi.dim(" — \(c.symbols.count) tickers, one strategy (\(usd(c.value)))"))
+        }
+        out.append("")
+    }
+
     // Income truth table — payouts vs price damage, with the honest baseline.
     let income = await IncomeService.report(holdings: portfolio.holdings,
                                             quotes: quotes, fxRates: fxRates)

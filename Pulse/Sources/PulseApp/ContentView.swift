@@ -17,6 +17,7 @@ final class AppModel: ObservableObject {
     @Published var reviewItems: [ReviewItem] = []
     @Published var verdicts: [PositionVerdict] = []
     @Published var incomeReport: IncomeReport? = nil
+    @Published var clusters: [HoldingCluster] = []
 
     private var ollamaProcess: Process? = nil
     @Published var snapshots: [DailySnapshot] = []
@@ -162,6 +163,8 @@ final class AppModel: ObservableObject {
                                            timelines: timelines, fxRates: fxRates)
         verdicts = ReviewService.verdicts(holdings: portfolio.holdings, quotes: quotes,
                                           timelines: timelines, fxRates: fxRates)
+        clusters = ClusterService.clusters(holdings: portfolio.holdings, quotes: quotes,
+                                           fxRates: fxRates)
         runAgentIfEnabled()
     }
 
@@ -364,6 +367,7 @@ struct ContentView: View {
                             // My account in 5 seconds; market detail lives in
                             // Market — only its one-line summary appears here.
                             MarketStrip(model: model)
+                            if !model.clusters.isEmpty { ClusterCard(model: model) }
                             GrowthCard(model: model)
                             AllocationCard(model: model)
                         case .market:
