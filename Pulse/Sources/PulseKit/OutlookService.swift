@@ -24,9 +24,16 @@ public struct StockOutlook {
 
     public let symbol: String
     public let price: Double
+    /// Quote currency of `price` (from Yahoo meta).
+    public let currency: String
     public let ret30dPct: Double?
     public let ret1yPct: Double?
     public let benchRet1yPct: Double?
+    /// Price vs the 50/200-day simple moving averages (% above/below).
+    public let vsMa50Pct: Double?
+    public let vsMa200Pct: Double?
+    /// 14-day RSI (Wilder) — classic momentum bands: >70 hot, <30 washed out.
+    public let rsi14: Double?
     public let high52w: Double?
     public let low52w: Double?
     /// Distance from the 52-week high (≤ 0; −20 means 20% below the high).
@@ -58,14 +65,50 @@ public enum OutlookService {
             benchRet = (bN - b0) / b0 * 100
         }
         return StockOutlook(symbol: symbol, price: quote.price,
+                            currency: quote.currency,
                             ret30dPct: s.ret30d, ret1yPct: s.ret1y,
                             benchRet1yPct: benchRet,
+                            vsMa50Pct: movingAverageGap(closes: closes, price: quote.price, window: 50),
+                            vsMa200Pct: movingAverageGap(closes: closes, price: quote.price, window: 200),
+                            rsi14: rsi(closes: closes, price: quote.price),
                             high52w: s.high, low52w: s.low,
                             pctFromHigh: s.fromHigh,
                             annualVolPct: s.vol,
                             maxDrawdown1yPct: s.drawdown,
                             recommendations: await recsTask,
                             news: await newsTask)
+    }
+
+    /// Price vs an N-day simple moving average, % — nil when there isn't a
+    /// full window of data (never a padded guess).
+    static func movingAverageGap(closes: [Double], price: Double, window: Int) -> Double? {
+        guard closes.count >= window else { return nil }
+        var series = closes
+        series[series.count - 1] = price
+        let ma = series.suffix(window).reduce(0, +) / Double(window)
+        return ma > 0 ? (price - ma) / ma * 100 : nil
+    }
+
+    /// 14-day RSI with Wilder smoothing.
+    static func rsi(closes: [Double], price: Double, period: Int = 14) -> Double? {
+        guard closes.count > period + 1 else { return nil }
+        var series = closes
+        series[series.count - 1] = price
+        var gains = 0.0, losses = 0.0
+        for i in 1...period {
+            let d = series[i] - series[i - 1]
+            if d >= 0 { gains += d } else { losses -= d }
+        }
+        var avgGain = gains / Double(period)
+        var avgLoss = losses / Double(period)
+        for i in (period + 1)..<series.count {
+            let d = series[i] - series[i - 1]
+            avgGain = (avgGain * Double(period - 1) + max(0, d)) / Double(period)
+            avgLoss = (avgLoss * Double(period - 1) + max(0, -d)) / Double(period)
+        }
+        if avgLoss == 0 { return 100 }
+        let rs = avgGain / avgLoss
+        return 100 - 100 / (1 + rs)
     }
 
     /// Pure stats from ~1y of daily closes — fully testable.

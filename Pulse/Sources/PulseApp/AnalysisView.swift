@@ -44,11 +44,13 @@ final class AnalysisModel: ObservableObject {
                 }
                 .joined(separator: "\n")
 
-            let holdings = portfolio.portfolio.holdings.map { h -> String in
-                let q = portfolio.quotes[h.symbol]
-                let pl = portfolio.holdingValue(h) - h.costBasis * h.quantity
-                return "\(h.symbol): qty \(num(h.quantity)), cost \(usd(h.costBasis)), now \(q.map { usd($0.price) } ?? "?"), P/L \(usd(pl))"
-            }.joined(separator: "\n")
+            let holdings = await MainActor.run {
+                portfolio.portfolio.holdings.map { h -> String in
+                    let q = portfolio.quotes[h.symbol]
+                    let pl = portfolio.holdingValue(h) - portfolio.holdingCost(h)
+                    return "\(h.symbol): qty \(num(h.quantity)), cost \(usd(h.costBasis * portfolio.fx(h.currency))), now \(q.map { usd(portfolio.displayPrice($0)) } ?? "?"), P/L \(usd(pl))"
+                }.joined(separator: "\n")
+            }
 
             // Since-invested timelines (dates marked "est." were detected
             // from price history, not stated by the user).
@@ -114,10 +116,16 @@ final class AnalysisModel: ObservableObject {
             \(sentimentContext)
             """
 
-            await MainActor.run { self.status = "analyzing with \(self.model) (local)…" }
+            let cloud = portfolio.config.usesAnthropicCloud
+            await MainActor.run {
+                self.status = cloud ? "analyzing with Anthropic (cloud — context leaves this machine)…"
+                                    : "analyzing with \(self.model) (local)…"
+            }
             do {
-                let text = try await LlmService.analyze(system: system, user: user,
-                                                        endpoint: endpoint, model: model)
+                let text = try await LlmService.analyzeRouted(system: system, user: user,
+                                                              config: portfolio.config,
+                                                              ollamaEndpoint: endpoint,
+                                                              ollamaModel: model)
                 await MainActor.run { self.output = text; self.status = ""; self.running = false }
             } catch {
                 await MainActor.run {
@@ -157,8 +165,11 @@ struct AnalysisCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Analyze your live numbers as-is — or add context: scan the screen (⇧⌘S over stocks in your browser) or drop/paste a screenshot.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
-                    Text("OCR runs on this Mac (Vision). Analysis runs on your local model, grounded in live portfolio, sentiment, world gauges and timelines. Nothing leaves the machine.")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    Text(app.config.usesAnthropicCloud
+                         ? "⚠ Cloud model configured (Anthropic): the analysis context — including your positions — leaves this machine over TLS. Switch llmProvider to \"ollama\" in config.json for fully on-device."
+                         : "OCR runs on this Mac (Vision). Analysis runs on your local model, grounded in live portfolio, sentiment, world gauges and timelines. Nothing leaves the machine.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(app.config.usesAnthropicCloud ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
                     HStack(spacing: 8) {
                         Button("Scan screen") { scanScreen() }
                             .keyboardShortcut("s", modifiers: [.command, .shift])

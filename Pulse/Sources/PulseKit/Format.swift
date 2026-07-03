@@ -1,8 +1,14 @@
 import Foundation
 
+/// Display currency — set once at startup from config.json
+/// (`displayCurrency`). All money the UI shows is converted into this.
+public enum Money {
+    public static var displayCode = "USD"
+}
+
 public func usd(_ v: Double) -> String {
     let f = NumberFormatter()
-    f.numberStyle = .currency; f.currencyCode = "USD"
+    f.numberStyle = .currency; f.currencyCode = Money.displayCode
     f.maximumFractionDigits = abs(v) >= 1000 ? 0 : 2
     return f.string(from: v as NSNumber) ?? "$\(v)"
 }

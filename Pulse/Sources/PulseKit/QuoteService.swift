@@ -17,6 +17,7 @@ public enum QuoteService {
         struct QuoteBlock: Decodable { let close: [Double?]? }
         struct Meta: Decodable {
             let symbol: String
+            let currency: String?
             let regularMarketPrice: Double?
             let chartPreviousClose: Double?
             let previousClose: Double?
@@ -65,7 +66,22 @@ public enum QuoteService {
             prev = closes.last ?? meta.chartPreviousClose ?? meta.previousClose ?? price
             closes.append(price)
         }
-        return Quote(symbol: symbol, price: price, previousClose: prev, closes: closes)
+        return Quote(symbol: symbol, price: price, previousClose: prev, closes: closes,
+                     currency: meta.currency ?? "USD")
+    }
+
+    // MARK: - FX (display-currency conversion)
+
+    /// Multipliers into `display` currency for every quote currency present
+    /// (via Yahoo FX pairs, e.g. "USDCAD=X"). display itself maps to 1.
+    public static func fxRates(for currencies: Set<String>, display: String) async -> [String: Double] {
+        var out: [String: Double] = [display: 1]
+        for cur in currencies where cur != display && !cur.isEmpty {
+            if let q = await fetch(symbol: "\(cur)\(display)=X"), q.price > 0 {
+                out[cur] = q.price
+            }
+        }
+        return out
     }
 
     /// Fetch all symbols with bounded concurrency + one retry — a 400-symbol

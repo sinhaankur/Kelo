@@ -94,6 +94,8 @@ if let i = args.firstIndex(of: "--import") {
 }
 
 let config = AppConfig.load()
+Money.displayCode = config.displayCurrency ?? "USD"
+Security.hardenDataFiles()
 
 @MainActor
 func render() async {
@@ -115,23 +117,32 @@ func render() async {
     let chains = await chainsTask
     let sentiment = await sentimentTask
     let holdingsNews = await newsTask
-    let analysis = await TimelineService.analyze(holdings: portfolio.holdings, quotes: quotes)
+    // FX: convert every quote currency into the display currency.
+    let fxRates = await QuoteService.fxRates(for: Set(quotes.values.map(\.currency)),
+                                             display: Money.displayCode)
+    func fx(_ currency: String?) -> Double { fxRates[currency ?? "USD"] ?? 1 }
+    let analysis = await TimelineService.analyze(holdings: portfolio.holdings,
+                                                 quotes: quotes, fxRates: fxRates)
     let timelines = analysis.timelines
 
     func callValue(_ c: CallPosition) -> Double? {
         if let oq = chains[OptionsService.occSymbol(for: c)], oq.mark > 0 {
-            return oq.mark * 100 * Double(c.contracts)
+            return oq.mark * 100 * Double(c.contracts) * fx("USD")
         }
-        return (quotes[c.underlying]?.price).map { c.intrinsic(at: $0) }
+        return (quotes[c.underlying]?.price).map { c.intrinsic(at: $0) * fx("USD") }
     }
+    func holdingValue(_ h: Holding) -> Double {
+        (quotes[h.symbol].map { $0.price * fx($0.currency) } ?? 0) * h.quantity
+    }
+    func holdingCost(_ h: Holding) -> Double { h.costBasis * h.quantity * fx(h.currency) }
 
-    let holdingsValue = portfolio.holdings.reduce(0.0) { $0 + (quotes[$1.symbol]?.price ?? 0) * $1.quantity }
+    let holdingsValue = portfolio.holdings.reduce(0.0) { $0 + holdingValue($1) }
     let callsValue = portfolio.calls.reduce(0.0) { $0 + (callValue($1) ?? 0) }
     let totalValue = holdingsValue + callsValue
-    let totalCost = portfolio.holdings.reduce(0.0) { $0 + $1.costBasis * $1.quantity }
-        + portfolio.calls.reduce(0.0) { $0 + $1.premiumPaid }
+    let totalCost = portfolio.holdings.reduce(0.0) { $0 + holdingCost($1) }
+        + portfolio.calls.reduce(0.0) { $0 + $1.premiumPaid * fx("USD") }
     let dayPL = portfolio.holdings.reduce(0.0) { acc, h in
-        acc + (quotes[h.symbol].map { $0.dayChange * h.quantity } ?? 0)
+        acc + (quotes[h.symbol].map { $0.dayChange * fx($0.currency) * h.quantity } ?? 0)
     }
     let allTime = totalValue - totalCost
     let allTimePct = totalCost > 0 ? allTime / totalCost * 100 : 0
@@ -193,12 +204,12 @@ func render() async {
         + "  " + pad("INVESTED", 12) + pad("HELD", 6) + pad("ANN.", 10, right: true) + "  SINCE BUY"))
     for h in portfolio.holdings {
         let q = quotes[h.symbol]
-        let value = (q?.price ?? 0) * h.quantity
-        let pl = value - h.costBasis * h.quantity
+        let value = holdingValue(h)
+        let pl = value - holdingCost(h)
         let t = timelines[h.symbol]
         var line = pad(Ansi.bold(h.symbol), 9)
         line += pad(num(h.quantity), 8, right: true)
-        line += pad(q.map { usd($0.price) } ?? "…", 11, right: true)
+        line += pad(q.map { usd($0.price * fx($0.currency)) } ?? "…", 11, right: true)
         line += pad(q.map { signed($0.dayChangePct) } ?? "—", 9, right: true)
         line += pad(q != nil ? usd(value) : "—", 11, right: true)
         line += pad(q != nil ? signed(pl, "%+.0f") : "—", 10, right: true)
@@ -230,9 +241,9 @@ func render() async {
     var flags: [(Bool, String)] = []
     var positions: [(String, Double, Double)] = [] // label, plPct, value
     for h in portfolio.holdings {
-        let cost = h.costBasis * h.quantity
-        guard cost > 0, let q = quotes[h.symbol] else { continue }
-        let v = q.price * h.quantity
+        let cost = holdingCost(h)
+        guard cost > 0, quotes[h.symbol] != nil else { continue }
+        let v = holdingValue(h)
         positions.append((h.symbol, (v - cost) / cost * 100, v))
     }
     for c in portfolio.calls {
@@ -300,7 +311,9 @@ func render() async {
 
     if analyze {
         print("")
-        print(Ansi.header("ANALYZE") + Ansi.dim("  local model via \(config.llmEndpoint ?? "http://localhost:11434")"))
+        print(Ansi.header("ANALYZE") + (config.usesAnthropicCloud
+            ? Ansi.yellow("  ⚠ Anthropic cloud — context leaves this machine")
+            : Ansi.dim("  local model via \(config.llmEndpoint ?? "http://localhost:11434")")))
         let timelineLines = portfolio.holdings.compactMap { h -> String? in
             guard let t = timelines[h.symbol] else { return nil }
             return "\(h.symbol): invested \(t.acquiredLabel)\(t.estimated ? " (est.)" : ""), held \(t.heldLabel), return \(String(format: "%+.1f%%", t.totalReturnPct))"
@@ -327,10 +340,10 @@ func render() async {
         \(timelineLines)
         """
         do {
-            let text = try await LlmService.analyze(
-                system: system, user: user,
-                endpoint: config.llmEndpoint ?? "http://localhost:11434",
-                model: config.llmModel ?? "qwen2.5:7b")
+            let text = try await LlmService.analyzeRouted(
+                system: system, user: user, config: config,
+                ollamaEndpoint: config.llmEndpoint ?? "http://localhost:11434",
+                ollamaModel: config.llmModel ?? "qwen2.5:7b")
             print(text)
         } catch {
             print(Ansi.yellow("⚠ \(error.localizedDescription)"))

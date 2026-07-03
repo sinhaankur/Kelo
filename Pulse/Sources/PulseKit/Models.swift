@@ -6,16 +6,21 @@ public struct Holding: Codable, Identifiable {
     public var id: String { symbol }
     public let symbol: String
     public let quantity: Double
-    public let costBasis: Double // USD per share/unit
+    public let costBasis: Double // per share/unit, in `currency`
     /// ISO "YYYY-MM-DD" the position was opened. Optional — when absent,
     /// Pulse estimates it from price history and labels it "est.".
     public let acquired: String?
+    /// Currency of costBasis (e.g. "CAD"). Should match the listing's quote
+    /// currency so per-position returns stay a pure ratio; nil = USD.
+    public let currency: String?
 
-    public init(symbol: String, quantity: Double, costBasis: Double, acquired: String? = nil) {
+    public init(symbol: String, quantity: Double, costBasis: Double,
+                acquired: String? = nil, currency: String? = nil) {
         self.symbol = symbol
         self.quantity = quantity
         self.costBasis = costBasis
         self.acquired = acquired
+        self.currency = currency
     }
 
     public var acquiredDate: Date? { acquired.flatMap(parseISODate) }
@@ -97,12 +102,17 @@ public struct Quote {
     public let previousClose: Double
     /// ~30 daily closes for the sparkline (oldest → newest).
     public let closes: [Double]
+    /// The listing's quote currency, straight from Yahoo's meta ("CAD" for
+    /// .TO, "USD" for NYSE, …) — never assumed.
+    public let currency: String
 
-    public init(symbol: String, price: Double, previousClose: Double, closes: [Double]) {
+    public init(symbol: String, price: Double, previousClose: Double,
+                closes: [Double], currency: String = "USD") {
         self.symbol = symbol
         self.price = price
         self.previousClose = previousClose
         self.closes = closes
+        self.currency = currency
     }
 
     public var dayChange: Double { price - previousClose }

@@ -31,10 +31,21 @@ final class AppModel: ObservableObject {
     }
 
     let config = AppConfig.load()
+    /// Multipliers into the display currency per quote currency (live FX).
+    @Published var fxRates: [String: Double] = [:]
     private var timer: Timer?
     private var timelineSignature = ""
     private var lastSentimentFetch: Date? = nil
     private var benchmarkHistory: [QuoteService.HistoryPoint] = []
+
+    init() {
+        Money.displayCode = config.displayCurrency ?? "USD"
+        Security.hardenDataFiles() // 0600 on portfolio/config/ledgers
+    }
+
+    func fx(_ currency: String?) -> Double { fxRates[currency ?? "USD"] ?? 1 }
+    func displayPrice(_ q: Quote) -> Double { q.price * fx(q.currency) }
+    func holdingCost(_ h: Holding) -> Double { h.costBasis * h.quantity * fx(h.currency) }
 
     func start() {
         guard timer == nil else { return }
@@ -78,15 +89,20 @@ final class AppModel: ObservableObject {
             }
             let oq = await chainsTask
             let q = merged
+            // FX after quotes: convert every quote currency into the display
+            // currency (CAD accounts hold USD listings and vice versa).
+            let fx = await QuoteService.fxRates(for: Set(q.values.map(\.currency)),
+                                                display: Money.displayCode)
             await MainActor.run {
                 self.optionQuotes = oq
+                self.fxRates = fx
                 self.lastRefresh = Date()
                 self.refreshing = false
                 self.quoteProgress = nil
                 self.recordSnapshot()
                 self.recomputePaperReviews()
             }
-            await self.refreshTimelines(quotes: q)
+            await self.refreshTimelines(quotes: q, fxRates: fx)
         }
         refreshSentiment()
     }
@@ -120,12 +136,13 @@ final class AppModel: ObservableObject {
 
     /// Timelines need 10y of history per symbol — fetch only when the
     /// positions themselves change, not on every 60 s quote tick.
-    private func refreshTimelines(quotes: [String: Quote]) async {
+    private func refreshTimelines(quotes: [String: Quote], fxRates: [String: Double]) async {
         let sig = portfolio.holdings
             .map { "\($0.symbol)|\($0.costBasis)|\($0.acquired ?? "")" }
             .joined(separator: ",")
         guard sig != timelineSignature else { return }
-        let analysis = await TimelineService.analyze(holdings: portfolio.holdings, quotes: quotes)
+        let analysis = await TimelineService.analyze(holdings: portfolio.holdings,
+                                                     quotes: quotes, fxRates: fxRates)
         self.timelines = analysis.timelines
         self.portfolioHistory = analysis.history
         self.benchmarkHistory = analysis.benchmark
@@ -167,16 +184,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Market value of a call position: CBOE mark × 100 × contracts; falls
-    /// back to intrinsic (from spot) when the chain has no quote.
+    /// Market value of a call position (US options are USD → converted to
+    /// display): CBOE mark × 100 × contracts; falls back to intrinsic.
     func callValue(_ c: CallPosition) -> Double? {
         if let oq = optionQuotes[OptionsService.occSymbol(for: c)], oq.mark > 0 {
-            return oq.mark * 100 * Double(c.contracts)
+            return oq.mark * 100 * Double(c.contracts) * fx("USD")
         }
-        return (quotes[c.underlying]?.price).map { c.intrinsic(at: $0) }
+        return (quotes[c.underlying]?.price).map { c.intrinsic(at: $0) * fx("USD") }
     }
 
-    func holdingValue(_ h: Holding) -> Double { (quotes[h.symbol]?.price ?? 0) * h.quantity }
+    func holdingValue(_ h: Holding) -> Double {
+        (quotes[h.symbol].map { displayPrice($0) } ?? 0) * h.quantity
+    }
 
     /// Display order: biggest position first (cost basis until quotes land).
     var sortedHoldings: [Holding] {
@@ -192,14 +211,14 @@ final class AppModel: ObservableObject {
             + portfolio.calls.reduce(0) { $0 + (callValue($1) ?? 0) }
     }
     var totalCost: Double {
-        portfolio.holdings.reduce(0) { $0 + $1.costBasis * $1.quantity }
-            + portfolio.calls.reduce(0) { $0 + $1.premiumPaid }
+        portfolio.holdings.reduce(0) { $0 + holdingCost($1) }
+            + portfolio.calls.reduce(0) { $0 + $1.premiumPaid * fx("USD") }
     }
     /// Today's move across stock/crypto holdings (options excluded — no
     /// previous-day option marks yet; labeled in the UI).
     var dayPL: Double {
         portfolio.holdings.reduce(0) { acc, h in
-            acc + (quotes[h.symbol].map { $0.dayChange * h.quantity } ?? 0)
+            acc + (quotes[h.symbol].map { $0.dayChange * fx($0.currency) * h.quantity } ?? 0)
         }
     }
 }
@@ -292,6 +311,7 @@ struct ContentView: View {
                             TimelineCard(model: model)
                             if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
                         case .analysis:
+                            LookupCard(model: model)
                             StatsCard(model: model)
                             AnalysisCard(app: model)
                         case .trade:
@@ -325,8 +345,10 @@ struct ContentView: View {
     private var footer: some View {
         let holdingSymbols = Set(model.portfolio.holdings.map(\.symbol))
         let quoted = holdingSymbols.filter { model.quotes[$0] != nil }.count
+        let domains = "query1.finance.yahoo.com · cdn.cboe.com · api.alternative.me · finnhub.io"
+            + (model.config.usesAnthropicCloud ? " · api.anthropic.com (cloud LLM, opt-in)" : "")
         return HStack {
-            Text("portfolio.json · quotes: Yahoo (delayed) · options: CBOE delayed · sentiment: VIX/alternative.me/Finnhub")
+            Text("educational, not financial advice · data stays on-device · talks only to: \(domains)")
             Spacer()
             if let p = model.quoteProgress {
                 Text("loading quotes \(p.done)/\(p.total)…")
@@ -346,6 +368,36 @@ struct ContentView: View {
 }
 
 // MARK: - Cards
+
+/// Understand ANY stock — search a ticker, get the outlook sheet (sourced
+/// signals, never a forecast). The engine behind it is the same one the
+/// holdings rows open.
+private struct LookupCard: View {
+    @ObservedObject var model: AppModel
+    @State private var symbol = ""
+    var body: some View {
+        Card(title: "UNDERSTAND A STOCK", trailing: "sourced signals, not a forecast") {
+            HStack(spacing: 8) {
+                TextField("any ticker — NVDA, SHOP.TO, BTC-CAD…", text: $symbol)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(width: 260)
+                    .onSubmit(open)
+                Button("Open outlook", action: open)
+                    .disabled(symbol.trimmingCharacters(in: .whitespaces).isEmpty)
+                Text("momentum · 52-week range · volatility · analyst counts · news · local-model read")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+            }
+        }
+    }
+    private func open() {
+        let s = symbol.trimmingCharacters(in: .whitespaces).uppercased()
+        guard !s.isEmpty else { return }
+        model.outlookTarget = AppModel.OutlookTarget(symbol: s)
+    }
+}
 
 /// One-line market pulse on the Overview — the detail lives in Market.
 private struct MarketStrip: View {
@@ -562,7 +614,7 @@ private struct HoldingsCard: View {
                 ForEach(model.sortedHoldings) { h in
                     let q = model.quotes[h.symbol]
                     let value = model.holdingValue(h)
-                    let pl = value - h.costBasis * h.quantity
+                    let pl = value - model.holdingCost(h)
                     GridRow {
                         Button {
                             model.outlookTarget = AppModel.OutlookTarget(symbol: h.symbol)
@@ -577,7 +629,7 @@ private struct HoldingsCard: View {
                         Sparkline(closes: q?.closes ?? [])
                             .frame(width: 72, height: 20)
                         Text(num(h.quantity)).cell()
-                        Text(q.map { usd($0.price) } ?? "…").cell()
+                        Text(q.map { usd(model.displayPrice($0)) } ?? "…").cell()
                         DayPill(pct: q?.dayChangePct)
                         Text(q != nil ? usd(value) : "—").cell()
                         Text(q != nil ? usd(pl) : "—").cell()

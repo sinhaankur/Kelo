@@ -54,7 +54,8 @@ public enum TimelineService {
     /// series in one pass (histories are fetched once). `quotes` supplies
     /// live prices when available; otherwise the last close stands in.
     public static func analyze(holdings: [Holding],
-                               quotes: [String: Quote]) async -> PortfolioAnalysis {
+                               quotes: [String: Quote],
+                               fxRates: [String: Double] = [:]) async -> PortfolioAnalysis {
         guard !holdings.isEmpty else {
             return PortfolioAnalysis(timelines: [:], history: nil, benchmark: [])
         }
@@ -85,7 +86,7 @@ public enum TimelineService {
             }
         }
         let growth = portfolioHistory(holdings: holdings, timelines: result,
-                                      histories: histories, quotes: quotes)
+                                      histories: histories, quotes: quotes, fxRates: fxRates)
         return PortfolioAnalysis(timelines: result, history: growth, benchmark: bench)
     }
 
@@ -101,11 +102,12 @@ public enum TimelineService {
     static func portfolioHistory(holdings: [Holding],
                                  timelines: [String: PositionTimeline],
                                  histories: [String: [QuoteService.HistoryPoint]],
-                                 quotes: [String: Quote]) -> PortfolioHistory? {
+                                 quotes: [String: Quote],
+                                 fxRates: [String: Double] = [:]) -> PortfolioHistory? {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "UTC")!
 
-        struct Series { let start: Date; let days: [Date]; let closes: [Double]; let qty: Double; let cost: Double }
+        struct Series { let start: Date; let days: [Date]; let closes: [Double]; let qty: Double; let cost: Double; let fx: Double }
         var series: [Series] = []
         var daySet = Set<Date>()
         for h in holdings {
@@ -124,8 +126,11 @@ public enum TimelineService {
             }
             guard !days.isEmpty else { continue }
             daySet.formUnion(days)
+            // Closes and cost share the listing's currency — one multiplier
+            // converts both into the display currency.
+            let fx = fxRates[quotes[h.symbol]?.currency ?? "USD"] ?? 1
             series.append(Series(start: start, days: days, closes: closes,
-                                 qty: h.quantity, cost: h.costBasis * h.quantity))
+                                 qty: h.quantity, cost: h.costBasis * h.quantity, fx: fx))
         }
         guard !series.isEmpty, !daySet.isEmpty else { return nil }
         let coveredHoldings = holdings.filter {
@@ -144,14 +149,14 @@ public enum TimelineService {
                     lastClose = s.closes[ptr]; ptr += 1
                 }
                 guard day >= s.start, let c = lastClose else { continue }
-                values[gi] += s.qty * c
-                costs[gi] += s.cost
+                values[gi] += s.qty * c * s.fx
+                costs[gi] += s.cost * s.fx
             }
         }
         // Live tail: today's holdings value from real-time quotes when known.
         if let last = values.indices.last {
             let live = zip(series, coveredHoldings).reduce(0.0) { acc, pair in
-                acc + pair.0.qty * (quotes[pair.1.symbol]?.price ?? pair.0.closes.last ?? 0)
+                acc + pair.0.qty * (quotes[pair.1.symbol]?.price ?? pair.0.closes.last ?? 0) * pair.0.fx
             }
             if live > 0 { values[last] = live }
         }

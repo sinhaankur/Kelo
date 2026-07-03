@@ -19,7 +19,8 @@ struct TradeDraftCard: View {
     struct Draft {
         let side: String
         let symbol: String
-        let price: Double
+        let price: Double        // display currency (what the UI shows)
+        let nativePrice: Double  // listing currency (what the paper ledger stores)
         let amount: Double
         let shares: Double
         let notes: [(ok: Bool, text: String)]
@@ -82,7 +83,7 @@ struct TradeDraftCard: View {
                                 model.logPaperTrade(PaperTrade(
                                     date: isoDateString(Date()), side: d.side,
                                     symbol: d.symbol, shares: d.shares,
-                                    entryPrice: d.price, amount: d.amount))
+                                    entryPrice: d.nativePrice, amount: d.amount))
                                 status = "logged as a paper trade — scored in PAPER TRADES below, no real order placed"
                                 draft = nil
                             }
@@ -111,12 +112,15 @@ struct TradeDraftCard: View {
                     status = "no quote for \(sym) — check the symbol"
                     return
                 }
-                draft = buildDraft(symbol: sym, price: q.price, amount: amount)
+                draft = buildDraft(symbol: sym, quote: q, amount: amount)
             }
         }
     }
 
-    private func buildDraft(symbol: String, price: Double, amount: Double) -> Draft {
+    private func buildDraft(symbol: String, quote: Quote, amount: Double) -> Draft {
+        // Amount is entered in the display currency; convert the quote so the
+        // share math and the checks all live in the same currency.
+        let price = quote.price * model.fx(quote.currency)
         let shares = amount / price
         var notes: [(Bool, String)] = []
         let holding = model.portfolio.holdings.first { $0.symbol == symbol }
@@ -142,9 +146,10 @@ struct TradeDraftCard: View {
                 notes.append((ok, ok
                     ? "selling \(String(format: "%.4f", shares)) of \(num(h.quantity)) held (\(usd(heldValue)) position)"
                     : "you hold only \(num(h.quantity)) shares (\(usd(heldValue))) — can't sell \(String(format: "%.4f", shares))"))
-                let realized = (price - h.costBasis) * min(shares, h.quantity)
+                let costPerShare = h.costBasis * model.fx(h.currency)
+                let realized = (price - costPerShare) * min(shares, h.quantity)
                 notes.append((realized >= 0,
-                              "realized P/L vs cost \(usd(h.costBasis)): \(usd(realized))"))
+                              "realized P/L vs cost \(usd(costPerShare)): \(usd(realized))"))
             } else {
                 notes.append((false, "\(symbol) is not in your portfolio — nothing to sell"))
             }
@@ -158,7 +163,7 @@ struct TradeDraftCard: View {
         \(notes.map { ($0.0 ? "· " : "! ") + $0.1 }.joined(separator: "\n"))
         Pulse never executes trades — place and confirm this in your broker.
         """
-        return Draft(side: side, symbol: symbol, price: price, amount: amount,
-                     shares: shares, notes: notes, summary: summary)
+        return Draft(side: side, symbol: symbol, price: price, nativePrice: quote.price,
+                     amount: amount, shares: shares, notes: notes, summary: summary)
     }
 }

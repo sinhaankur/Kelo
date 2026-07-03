@@ -24,7 +24,7 @@ struct OutlookSheet: View {
                 Text(symbol)
                     .font(.system(size: 20, weight: .semibold, design: .monospaced))
                 if let o = outlook {
-                    Text(usd(o.price))
+                    Text(usd(o.price * model.fx(o.currency)))
                         .font(.system(size: 14, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
@@ -50,6 +50,15 @@ struct OutlookSheet: View {
                     if let f = o.pctFromHigh { tile("VS 52W HIGH", pctLabel(f), f > -5 ? .green : .orange) }
                     if let v = o.annualVolPct { tile("VOLATILITY", String(format: "%.0f%%/y", v), v > 60 ? .orange : .secondary) }
                     if let d = o.maxDrawdown1yPct { tile("MAX FALL 1Y", pctLabel(d), .orange) }
+                    Spacer()
+                }
+                HStack(spacing: 10) {
+                    if let m = o.vsMa50Pct { tile("VS 50-DAY AVG", pctLabel(m), m >= 0 ? .green : .orange) }
+                    if let m = o.vsMa200Pct { tile("VS 200-DAY AVG", pctLabel(m), m >= 0 ? .green : .orange) }
+                    if let r = o.rsi14 {
+                        tile("RSI 14", String(format: "%.0f", r),
+                             r > 70 ? .orange : r < 30 ? .cyan : .secondary)
+                    }
                     Spacer()
                 }
                 if let r = o.recommendations, r.total > 0 {
@@ -79,10 +88,16 @@ struct OutlookSheet: View {
                     }
                 }
                 HStack(spacing: 8) {
-                    Button(llmRunning ? "Reading…" : "Local model read") { runLlm(o) }
+                    Button(llmRunning ? "Reading…"
+                           : model.config.usesAnthropicCloud ? "Model read (Anthropic cloud)"
+                           : "Local model read") { runLlm(o) }
                         .disabled(llmRunning)
-                    Text("scenarios from the numbers above — the future is not knowable; test your read as a paper trade in Trade")
-                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                    Text(model.config.usesAnthropicCloud
+                         ? "⚠ cloud model configured — this context leaves the machine"
+                         : "scenarios from the numbers above — the future is not knowable; test your read as a paper trade in Trade")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(model.config.usesAnthropicCloud
+                                         ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
                 }
                 if !llmStatus.isEmpty {
                     Text(llmStatus).font(.system(size: 10, design: .monospaced)).foregroundStyle(.orange)
@@ -132,9 +147,10 @@ struct OutlookSheet: View {
         End with exactly: "The future is not knowable. Not financial advice."
         """
         let user = """
-        SYMBOL: \(o.symbol) at \(usd(o.price)) — \(position)
+        SYMBOL: \(o.symbol) at \(usd(o.price * model.fx(o.currency))) — \(position)
         30d \(o.ret30dPct.map(pctLabel) ?? "?") · 1y \(o.ret1yPct.map(pctLabel) ?? "?") · S&P 1y \(o.benchRet1yPct.map(pctLabel) ?? "?")
-        vs 52w high \(o.pctFromHigh.map(pctLabel) ?? "?") · realized vol \(o.annualVolPct.map { String(format: "%.0f%%/y", $0) } ?? "?") · max fall 1y \(o.maxDrawdown1yPct.map(pctLabel) ?? "?")
+        vs 52w high \(o.pctFromHigh.map(pctLabel) ?? "?") · vs 50dma \(o.vsMa50Pct.map(pctLabel) ?? "?") · vs 200dma \(o.vsMa200Pct.map(pctLabel) ?? "?") · RSI14 \(o.rsi14.map { String(format: "%.0f", $0) } ?? "?")
+        realized vol \(o.annualVolPct.map { String(format: "%.0f%%/y", $0) } ?? "?") · max fall 1y \(o.maxDrawdown1yPct.map(pctLabel) ?? "?")
         \(recs)
         GLOBAL SENTIMENT: \(sentiment)
         NEWS:
@@ -142,8 +158,10 @@ struct OutlookSheet: View {
         """
         Task {
             do {
-                let text = try await LlmService.analyze(system: system, user: user,
-                                                        endpoint: endpoint, model: llmModel)
+                let text = try await LlmService.analyzeRouted(system: system, user: user,
+                                                              config: model.config,
+                                                              ollamaEndpoint: endpoint,
+                                                              ollamaModel: llmModel)
                 await MainActor.run { llmOutput = text; llmRunning = false }
             } catch {
                 await MainActor.run {

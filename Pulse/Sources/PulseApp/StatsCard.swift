@@ -17,7 +17,7 @@ struct StatsCard: View {
     private var stats: [PositionStat] {
         var out: [PositionStat] = []
         for h in model.portfolio.holdings {
-            let cost = h.costBasis * h.quantity
+            let cost = model.holdingCost(h)
             guard cost > 0, let q = model.quotes[h.symbol] else { continue }
             let value = model.holdingValue(h)
             out.append(.init(label: h.symbol, plPct: (value - cost) / cost * 100,
