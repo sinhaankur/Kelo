@@ -153,6 +153,17 @@ final class AgentTests: XCTestCase {
         XCTAssertNil(action)
     }
 
+    func testWealthsimpleSymbolReverseMapping() {
+        XCTAssertEqual(AgentService.wealthsimpleSymbol("SHOP.TO"), "SHOP")
+        XCTAssertEqual(AgentService.wealthsimpleSymbol("TECK-B.TO"), "TECK.B")
+        XCTAssertEqual(AgentService.wealthsimpleSymbol("ABC.V"), "ABC")
+        XCTAssertEqual(AgentService.wealthsimpleSymbol("XYZ.CN"), "XYZ")
+        XCTAssertEqual(AgentService.wealthsimpleSymbol("BTC-CAD"), "BTC")
+        XCTAssertEqual(AgentService.wealthsimpleSymbol("ADA-USD"), "ADA")
+        XCTAssertEqual(AgentService.wealthsimpleSymbol("NVDA"), "NVDA")
+        XCTAssertEqual(AgentService.wealthsimpleSymbol("BRK-B"), "BRK-B") // US class shares stay dashed
+    }
+
     func testAgentStoresItsReasoning() {
         let url = tmpState(); defer { try? FileManager.default.removeItem(at: url) }
         let action = AgentService.runCycle(ideas: ideas, quotes: quotes, fxRates: [:],

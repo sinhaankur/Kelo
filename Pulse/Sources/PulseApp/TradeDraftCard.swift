@@ -75,6 +75,21 @@ struct TradeDraftCard: View {
                             }
                         }
                         HStack(spacing: 10) {
+                            Button("→ Wealthsimple") {
+                                let ticket = AgentService.orderTicket(
+                                    side: d.side, yahooSymbol: d.symbol,
+                                    shares: d.shares, approxAmount: d.amount,
+                                    lastPrice: d.nativePrice,
+                                    currency: model.quotes[d.symbol]?.currency ?? "USD",
+                                    reasoning: nil)
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(ticket, forType: .string)
+                                if let url = URL(string: "https://my.wealthsimple.com/app/trade") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                                status = "order ticket copied — paste the symbol in Wealthsimple; you place and confirm it there"
+                            }
+                            .help("Copies the ready order ticket and opens Wealthsimple — the final click is yours")
                             Button("Copy order summary") {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(d.summary, forType: .string)

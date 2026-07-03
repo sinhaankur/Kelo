@@ -75,6 +75,39 @@ public enum AgentService {
         return Action(trade: trade, reasoning: pick.thesis)
     }
 
+    // MARK: - Broker handoff (Wealthsimple has no trading API — the last
+    // click stays with the user, at the brokerage, behind its confirmations)
+
+    /// Translate a Yahoo-qualified symbol back to what Wealthsimple shows:
+    /// SHOP.TO → SHOP, TECK-B.TO → TECK.B, BTC-CAD → BTC, NVDA → NVDA.
+    public static func wealthsimpleSymbol(_ yahoo: String) -> String {
+        var s = yahoo
+        for suffix in [".TO", ".V", ".CN", ".NE"] where s.hasSuffix(suffix) {
+            s = String(s.dropLast(suffix.count))
+            s = s.replacingOccurrences(of: "-", with: ".") // class shares back to dots
+            return s
+        }
+        for pair in ["-CAD", "-USD"] where s.hasSuffix(pair) {
+            return String(s.dropLast(pair.count)) // crypto raw symbol
+        }
+        return s
+    }
+
+    /// The ready-to-paste order ticket. Every number sourced, delayed-quote
+    /// caveat included, execution explicitly the user's.
+    public static func orderTicket(side: String, yahooSymbol: String, shares: Double,
+                                   approxAmount: Double, lastPrice: Double,
+                                   currency: String, reasoning: String?) -> String {
+        var t = """
+        WEALTHSIMPLE ORDER DRAFT — you place and confirm it
+        \(side) \(String(format: "%.4f", shares)) \(wealthsimpleSymbol(yahooSymbol)) ≈ \(usd(approxAmount))
+        last quote \(String(format: "%.2f", lastPrice)) \(currency) (delayed — check the live price before confirming)
+        """
+        if let reasoning { t += "\nwhy: \(reasoning)" }
+        t += "\nPulse never executes trades — this ticket is a draft, not an order."
+        return t
+    }
+
     /// The agent's open scorecard from its reviewed calls.
     public static func scorecard(reviews: [PaperReview]) -> (right: Int, scored: Int, avgMove: Double?, avgBench: Double?) {
         let agent = reviews.filter { $0.trade.source == "agent" }

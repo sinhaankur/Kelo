@@ -72,6 +72,11 @@ struct AgentCard: View {
                                             .foregroundStyle(right ? Color.green : Color.red)
                                     }
                                     Spacer()
+                                    Button("→ Wealthsimple") {
+                                        handoff(r, why: state.reasonings[r.trade.id.uuidString])
+                                    }
+                                    .font(.system(size: 10))
+                                    .help("Copies the ready order ticket and opens Wealthsimple — you place and confirm it there")
                                     Button {
                                         model.deletePaperTrade(id: r.trade.id)
                                     } label: {
@@ -89,11 +94,25 @@ struct AgentCard: View {
                     }
                 }
 
-                Text("the agent cannot know the future — nothing can. It makes disciplined, signal-based calls on paper and keeps this scorecard. Trust the record when it earns it, in months not days; it never touches real money.")
+                Text("the agent cannot know the future — nothing can. It makes disciplined, signal-based calls on paper and keeps this scorecard. Trust the record when it earns it, in months not days; it never touches real money. '→ Wealthsimple' copies a ready order ticket and opens the brokerage — the final click is always yours (Wealthsimple has no trading API, and that's the right design anyway).")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private func handoff(_ r: PaperReview, why: String?) {
+        let q = model.quotes[r.trade.symbol]
+        let ticket = AgentService.orderTicket(
+            side: r.trade.side, yahooSymbol: r.trade.symbol,
+            shares: r.trade.shares, approxAmount: r.trade.amount,
+            lastPrice: q?.price ?? r.trade.entryPrice,
+            currency: q?.currency ?? "USD", reasoning: why)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(ticket, forType: .string)
+        if let url = URL(string: "https://my.wealthsimple.com/app/trade") {
+            NSWorkspace.shared.open(url)
         }
     }
 }
