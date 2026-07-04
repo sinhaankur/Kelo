@@ -19,6 +19,7 @@ struct WorldMapView: View {
         "^FCHI": (48.9, 2.3),     // Paris
         "^N225": (35.7, 139.7),   // Tokyo
         "^HSI": (22.3, 114.2),    // Hong Kong
+        "^BSESN": (19.1, 72.9),   // Mumbai
         "^AXJO": (-33.9, 151.2),  // Sydney
     ]
 
@@ -85,6 +86,7 @@ struct WorldMapView: View {
 private struct MarketDot: View {
     let ticker: WorldMarkets.Ticker
     @State private var pulse = false
+    @State private var hovering = false
     var body: some View {
         let up = ticker.dayPct >= 0
         let color: Color = up ? Color(red: 0.25, green: 0.9, blue: 0.5)
@@ -96,15 +98,30 @@ private struct MarketDot: View {
                 .frame(width: 22 + intensity * 16, height: 22 + intensity * 16)
                 .blur(radius: 7)
                 .scaleEffect(pulse ? 1.15 : 0.9)
-            // Ring.
-            Circle().strokeBorder(color.opacity(0.8), lineWidth: 1.2)
-                .frame(width: 14, height: 14)
+            // Ring — brightens on hover.
+            Circle().strokeBorder(color.opacity(hovering ? 1 : 0.8), lineWidth: hovering ? 2 : 1.2)
+                .frame(width: hovering ? 18 : 14, height: hovering ? 18 : 14)
             // Bright core.
             Circle().fill(color).frame(width: 8, height: 8)
                 .overlay(Circle().fill(.white.opacity(0.7)).frame(width: 3, height: 3).offset(x: -1, y: -1))
                 .shadow(color: color, radius: 4)
         }
-        .help("\(ticker.name): \(String(format: "%+.2f%%", ticker.dayPct)) today")
+        .contentShape(Circle().size(width: 28, height: 28).offset(x: -14, y: -14))
+        .onHover { hovering = $0 }
+        .popover(isPresented: $hovering, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(ticker.name).font(.system(size: 12, weight: .semibold))
+                HStack(spacing: 6) {
+                    Text(String(format: "%+.2f%%", ticker.dayPct))
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(up ? .green : .red)
+                    Text("today").font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
+                Text(String(format: "%.1f", ticker.price))
+                    .font(.system(size: 10.5, design: .monospaced)).foregroundStyle(.secondary)
+            }
+            .padding(10)
+        }
         .onAppear {
             withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
                 pulse = true

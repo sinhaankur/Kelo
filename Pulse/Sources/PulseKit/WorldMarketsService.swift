@@ -47,6 +47,7 @@ public enum WorldMarketsService {
         ("^FCHI", "CAC 40 (France)", "Europe", .index),
         ("^N225", "Nikkei (Japan)", "Asia-Pacific", .index),
         ("^HSI", "Hang Seng (HK)", "Asia-Pacific", .index),
+        ("^BSESN", "Sensex (India)", "Asia-Pacific", .index),
         ("^AXJO", "ASX 200 (Australia)", "Asia-Pacific", .index),
         ("GC=F", "Gold", "Commodities", .commodity),
         ("CL=F", "Oil (WTI)", "Commodities", .commodity),
