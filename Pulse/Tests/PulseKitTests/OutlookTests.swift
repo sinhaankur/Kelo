@@ -153,6 +153,13 @@ final class TacticalDataTests: XCTestCase {
         XCTAssertTrue(Chokepoints.all.contains { $0.name.contains("Suez") })
         XCTAssertTrue(Chokepoints.all.allSatisfy { abs($0.lat) <= 90 && abs($0.lon) <= 180 })
     }
+    func testTradeRoutesValid() {
+        XCTAssertFalse(TradeRoutes.all.isEmpty)
+        XCTAssertTrue(TradeRoutes.all.allSatisfy { $0.waypoints.count >= 2 })
+        XCTAssertTrue(TradeRoutes.all.allSatisfy {
+            $0.waypoints.allSatisfy { abs($0.lat) <= 90 && abs($0.lon) <= 180 }
+        })
+    }
 }
 
 final class GeoDependencyTests: XCTestCase {

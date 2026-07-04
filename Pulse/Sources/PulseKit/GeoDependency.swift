@@ -36,6 +36,32 @@ public enum Chokepoints {
     ]
 }
 
+/// Major maritime trade routes — the shipping lanes global goods flow along,
+/// drawn as polylines between key waypoints. Real, well-known routes (public
+/// geography), so the map shows how trade physically connects regions.
+public enum TradeRoutes {
+    public struct Route {
+        public let name: String
+        public let waypoints: [(lat: Double, lon: Double)]
+        public let note: String
+    }
+    public static let all: [Route] = [
+        Route(name: "Asia–Europe (via Suez)",
+              waypoints: [(31.2, 121.5), (1.3, 103.8), (6.9, 79.8), (12.6, 43.3),
+                          (30.5, 32.3), (36.0, 14.3), (51.9, 4.5)],
+              note: "The busiest goods route on Earth: China → Malacca → Suez → Rotterdam. A Suez or Bab-el-Mandeb disruption backs it all up."),
+        Route(name: "Transpacific",
+              waypoints: [(31.2, 121.5), (35.4, 139.7), (37.8, -122.4), (33.7, -118.2)],
+              note: "Asia → US West Coast — electronics and consumer goods into North America."),
+        Route(name: "Gulf oil export",
+              waypoints: [(29.4, 47.9), (26.6, 56.3), (6.9, 79.8), (1.3, 103.8), (31.2, 121.5)],
+              note: "Middle East crude → Asia through the Strait of Hormuz, the world's most critical oil chokepoint."),
+        Route(name: "Transatlantic",
+              waypoints: [(40.7, -74.0), (51.5, -0.1), (51.9, 4.5)],
+              note: "North America ↔ Europe — the classic Atlantic trade lane."),
+    ]
+}
+
 public enum GeoDependencyLens {
     public static func forIndustry(_ industry: String?) -> GeoDependency {
         let ind = (industry ?? "").lowercased()

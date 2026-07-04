@@ -12,6 +12,7 @@ struct TacticalMapView: View {
     @State private var showMarkets = true
     @State private var showConflict = true
     @State private var showEnergy = true
+    @State private var showRoutes = true
     @State private var selected: MapMarker? = nil
 
     var body: some View {
@@ -21,7 +22,7 @@ struct TacticalMapView: View {
                 // Interactive vector map: countries with active conflict events
                 // tint red; hover names a country; markers overlay on top.
                 VectorMapView(shading: conflictShading, markers: markers,
-                              selectedID: selected?.id) { selected = $0 }
+                              routes: routeLines, selectedID: selected?.id) { selected = $0 }
                     .frame(height: 300)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(alignment: .bottom) { legend.padding(8) }
@@ -54,8 +55,9 @@ struct TacticalMapView: View {
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .tracking(2).foregroundStyle(.secondary)
             layerToggle("Markets", $showMarkets, .cyan)
-            layerToggle("Conflict events", $showConflict, .red)
+            layerToggle("Military conflict", $showConflict, .red)
             layerToggle("Energy chokepoints", $showEnergy, .orange)
+            layerToggle("Trade routes", $showRoutes, .blue)
             Divider().padding(.vertical, 2)
             Text("\(markers.count) markers")
                 .font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary)
@@ -82,6 +84,7 @@ struct TacticalMapView: View {
             legendItem("Market", .cyan)
             legendItem("Conflict", .red)
             legendItem("Chokepoint", .orange)
+            legendItem("Trade route", .blue)
             Spacer()
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
@@ -131,6 +134,11 @@ struct TacticalMapView: View {
         return out
     }
 
+    /// Trade-route polylines (dashed lanes) when the layer is on.
+    private var routeLines: [[(lat: Double, lon: Double)]] {
+        showRoutes ? TradeRoutes.all.map { $0.waypoints } : []
+    }
+
     /// Countries with active conflict events → red tint (intensity by count).
     /// Maps GDELT country names to Natural Earth names where they differ.
     private var conflictShading: [String: Color] {
@@ -162,8 +170,7 @@ struct TacticalMapView: View {
 
 // A single marker on the tactical map.
 struct MapMarker: Identifiable {
-    enum Kind { case market, conflict, energy }
-    let id = UUID()
+    enum Kind: String { case market, conflict, energy }
     let kind: Kind
     let lat: Double
     let lon: Double
@@ -172,6 +179,9 @@ struct MapMarker: Identifiable {
     let body: String
     let url: String?
     let color: Color
+    // Stable identity from content — NOT a fresh UUID each rebuild, or
+    // toggling a layer churns every marker's ID and the map won't update.
+    var id: String { "\(kind.rawValue)|\(title)|\(lat),\(lon)" }
 }
 
 

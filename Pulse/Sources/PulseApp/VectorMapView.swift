@@ -10,7 +10,9 @@ struct VectorMapView: View {
     /// Country name → tint (e.g. conflict shading). Names match Natural Earth.
     let shading: [String: Color]
     let markers: [MapMarker]
-    let selectedID: UUID?
+    /// Polylines to draw (trade routes), each a list of (lat, lon).
+    var routes: [[(lat: Double, lon: Double)]] = []
+    let selectedID: String?
     let onTapMarker: (MapMarker) -> Void
 
     @State private var hoverCountry: String? = nil
@@ -34,6 +36,20 @@ struct VectorMapView: View {
                         ctx.fill(path, with: .color(isHover ? fill.opacity(0.95) : fill))
                         ctx.stroke(path, with: .color(Color.white.opacity(isHover ? 0.4 : 0.12)),
                                    lineWidth: isHover ? 1 : 0.4)
+                    }
+                }
+                // Trade-route polylines.
+                if !routes.isEmpty {
+                    Canvas { ctx, sz in
+                        for route in routes {
+                            var path = Path()
+                            for (i, wp) in route.enumerated() {
+                                let pt = project(wp.lat, wp.lon, sz)
+                                if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+                            }
+                            ctx.stroke(path, with: .color(Color(red: 0.3, green: 0.7, blue: 0.9).opacity(0.55)),
+                                       style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+                        }
                     }
                 }
                 // Hover label.
