@@ -136,6 +136,29 @@ public struct PositionVerdict {
             return "HOLD: no decay markers. Nothing structurally wrong. Don't churn it looking for action."
         }
     }
+
+    /// The committed recommendation — direct, no hedging. Every EXIT gets
+    /// the same discipline: the loss is already sunk, so the only question
+    /// is whether the REMAINING money keeps bleeding here or goes to work.
+    public var recommendation: String {
+        switch call {
+        case .exit:
+            return "Sell it. Not at a target price — now, at market. Waiting for it to 'come back to what you paid' is the sunk-cost trap: the market doesn't know your cost, and this needs a huge gain just to break even while it keeps decaying. Ask yourself the only question that matters — if you had this cash today, would you buy this? If no, you're re-buying it every day you hold. Redeploy into the index core."
+        case .review:
+            return "Decide, don't drift. One marker is a warning, not a verdict — open it, check whether the business is healthy or breaking, and either commit to holding it with a reason or move it to the exit pile before the second marker fires."
+        case .hold:
+            return "Hold — and be patient. No decay here, so time is on your side. This is where patience compounds; don't sell it because something else is loud. Only revisit if a marker appears."
+        }
+    }
+
+    /// The one honest test, per call.
+    public var buyItTodayVerdict: String {
+        switch call {
+        case .exit: return "Would you buy it today? Almost certainly no — so holding is choosing to buy it, daily."
+        case .review: return "Would you buy it today? If you can't say yes with a reason, it's drifting toward exit."
+        case .hold: return "Would you buy it today? If yes, keep holding. Patience is the position."
+        }
+    }
 }
 
 extension ReviewService {

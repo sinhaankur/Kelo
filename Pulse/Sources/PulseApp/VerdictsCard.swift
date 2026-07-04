@@ -1,6 +1,34 @@
 import SwiftUI
 import PulseKit
 
+/// The committed recommendation block — a direct call, the reasoning, and
+/// the one honest test. No hedging: an EXIT with two decay markers is not
+/// ambiguous, and the app says so.
+struct RecommendationBox: View {
+    let headline: String
+    let detail: String
+    let test: String
+    let color: Color
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.right.circle.fill")
+                    .font(.system(size: 12)).foregroundStyle(color)
+                Text(headline).font(.system(size: 12, weight: .bold))
+            }
+            Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(test).font(.system(size: 11, weight: .medium, design: .default))
+                .italic().foregroundStyle(color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 9).fill(color.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(color.opacity(0.22)))
+    }
+}
+
 /// A single decay marker with a tappable "why". The plain line stays inline;
 /// the (i) opens a popover with the exact rule, threshold, and reasoning —
 /// so no label is ever a mystery.
@@ -71,10 +99,14 @@ struct VerdictsCard: View {
                                 .font(.system(size: 11))
                             }
                         }
-                        Text("EXIT CANDIDATE means: the direction is out, unless you can write down a specific reason this company recovers that the market hasn't priced. If you can't write the sentence, that's the answer. Click a symbol for its lifecycle + news.")
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        // The committed recommendation — direct, no hedge.
+                        if let first = exits.first {
+                            RecommendationBox(
+                                headline: "Recommendation: sell the exit candidates",
+                                detail: first.recommendation,
+                                test: first.buyItTodayVerdict,
+                                color: .red)
+                        }
                     }
                     if !reviews.isEmpty {
                         DisclosureGroup("\(reviews.count) positions marked REVIEW — one marker fired") {
@@ -91,6 +123,19 @@ struct VerdictsCard: View {
                             .padding(.top, 4)
                         }
                         .font(.system(size: 11.5))
+                    }
+                    // Patience is the game — for the RIGHT assets. The holds
+                    // get the other half of the message.
+                    if !holds.isEmpty, exits.isEmpty {
+                        RecommendationBox(
+                            headline: "Recommendation: hold, and be patient",
+                            detail: holds[0].recommendation,
+                            test: "Time compounds a healthy position. Don't sell what's working because something else is loud.",
+                            color: .green)
+                    } else if !holds.isEmpty {
+                        Text("The \(holds.count) HOLDs are where patience pays — leave them alone while you clear the exits. Time compounds healthy positions; it only bleeds broken ones.")
+                            .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
