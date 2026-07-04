@@ -67,6 +67,12 @@ struct OutlookSheet: View {
                 HStack(spacing: 10) {
                     if let r = o.ret30dPct { tile("30-DAY", pctLabel(r), r >= 0 ? .green : .red) }
                     if let r = o.ret1yPct { tile("1-YEAR", pctLabel(r), r >= 0 ? .green : .red) }
+                    // Real (inflation-adjusted) 1y return: nominal minus ~3.5%
+                    // CPI. What your money actually GAINED in buying power.
+                    if let r = o.ret1yPct {
+                        let real = r - 3.5
+                        tile("1-YEAR REAL", pctLabel(real), real >= 0 ? .green : .red)
+                    }
                     if let b = o.benchRet1yPct { tile("S&P 1-YEAR", pctLabel(b), .secondary) }
                     if let f = o.pctFromHigh { tile("VS 52W HIGH", pctLabel(f), f > -5 ? .green : .orange) }
                     if let v = o.annualVolPct { tile("VOLATILITY", String(format: "%.0f%%/y", v), v > 60 ? .orange : .secondary) }
@@ -103,9 +109,38 @@ struct OutlookSheet: View {
                                     .font(.system(size: 11)).foregroundStyle(.secondary)
                             }
                         }
-                        if let industry = f.industry {
-                            Text("industry: \(industry)")
-                                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                        HStack(spacing: 10) {
+                            if let industry = f.industry {
+                                Text("industry: \(industry)")
+                                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                            }
+                            if let country = f.country {
+                                Text("domiciled: \(country)")
+                                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                            }
+                        }
+                        Text("note: a company listed in one country often earns across many — a shock (inflation, rates, currency, policy) in any market it depends on can move the stock, not just its home country's.")
+                            .font(.system(size: 9.5)).foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        // WHY & HOW the big forces reach this stock.
+                        let exposures = MacroLens.exposures(industry: f.industry, country: f.country)
+                        if !exposures.isEmpty {
+                            Text("WHAT MOVES THIS STOCK — the macro channels")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .tracking(1).foregroundStyle(.tertiary).padding(.top, 4)
+                            ForEach(exposures.indices, id: \.self) { i in
+                                let e = exposures[i]
+                                VStack(alignment: .leading, spacing: 1) {
+                                    HStack(spacing: 6) {
+                                        Text(e.force).font(.system(size: 11, weight: .semibold))
+                                        Text(e.direction).font(.system(size: 9.5, design: .monospaced))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    Text(e.channel).font(.system(size: 10.5)).foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
                         }
                     }
                 } else if o.fundamentals == nil, model.config.finnhubApiKey != nil {

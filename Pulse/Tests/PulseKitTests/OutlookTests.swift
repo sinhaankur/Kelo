@@ -108,6 +108,41 @@ final class VerdictTests: XCTestCase {
     }
 }
 
+final class MacroLensTests: XCTestCase {
+    func testEnergyStockGetsWarAndDollarChannels() {
+        let e = MacroLens.exposures(industry: "Oil & Gas", country: "US")
+        XCTAssertTrue(e.contains { $0.force.contains("War") })
+        XCTAssertTrue(e.contains { $0.force.contains("petrodollar") || $0.channel.contains("dollar") })
+    }
+    func testForeignStockAddsCurrencyExposure() {
+        let e = MacroLens.exposures(industry: "Banking", country: "IN")
+        XCTAssertTrue(e.contains { $0.force.contains("Currency") })
+    }
+    func testUnknownIndustryStillGetsUniversalChannel() {
+        let e = MacroLens.exposures(industry: nil, country: "US")
+        XCTAssertFalse(e.isEmpty)
+    }
+}
+
+final class SectorTests: XCTestCase {
+    func testSectorGroupingAndConcentration() {
+        let holds = [
+            Holding(symbol: "AAPL", quantity: 1, costBasis: 100, currency: "USD", assetClass: "Stock"),
+            Holding(symbol: "MSFT", quantity: 1, costBasis: 100, currency: "USD", assetClass: "Stock"),
+            Holding(symbol: "BTC-USD", quantity: 1, costBasis: 100, currency: "USD", assetClass: "Crypto"),
+        ]
+        let quotes = [
+            "AAPL": Quote(symbol: "AAPL", price: 100, previousClose: 100, closes: []),
+            "MSFT": Quote(symbol: "MSFT", price: 100, previousClose: 100, closes: []),
+            "BTC-USD": Quote(symbol: "BTC-USD", price: 100, previousClose: 100, closes: []),
+        ]
+        let slices = ClusterService.sectors(holdings: holds, quotes: quotes, fxRates: [:],
+                                            industryBySymbol: ["AAPL": "Technology", "MSFT": "Technology"])
+        XCTAssertTrue(slices.contains { $0.name == "Technology" && $0.count == 2 })
+        XCTAssertTrue(slices.contains { $0.name == "Crypto" })
+    }
+}
+
 final class AgentTests: XCTestCase {
     private func tmpState() -> URL {
         FileManager.default.temporaryDirectory

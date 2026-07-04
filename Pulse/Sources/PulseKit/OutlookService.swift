@@ -28,6 +28,8 @@ public struct StockOutlook {
     public struct Fundamentals {
         public let name: String?
         public let industry: String?
+        public let country: String?              // where the company is domiciled
+        public let exchange: String?
         public let peRatio: Double?
         public let profitMarginPct: Double?
         public let revenueGrowthPct: Double?     // TTM YoY
@@ -192,7 +194,10 @@ public enum OutlookService {
     public static func fundamentals(symbol: String, key: String?) async -> StockOutlook.Fundamentals? {
         guard let key, !key.isEmpty, SentimentService.isEquitySymbol(symbol) else { return nil }
         // Profile + metrics are two Finnhub calls.
-        struct Profile: Decodable { let name: String?; let finnhubIndustry: String? }
+        struct Profile: Decodable {
+            let name: String?; let finnhubIndustry: String?
+            let country: String?; let exchange: String?
+        }
         struct Metrics: Decodable {
             struct M: Decodable {
                 let peBasicExclExtraTTM: Double?
@@ -212,6 +217,7 @@ public enum OutlookService {
         guard p != nil || m != nil else { return nil }
         return StockOutlook.Fundamentals(
             name: p?.name, industry: p?.finnhubIndustry,
+            country: p?.country, exchange: p?.exchange,
             peRatio: m?.peBasicExclExtraTTM,
             profitMarginPct: m?.netProfitMarginTTM,
             revenueGrowthPct: m?.revenueGrowthTTMYoy,

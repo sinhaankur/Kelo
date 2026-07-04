@@ -18,6 +18,9 @@ final class AppModel: ObservableObject {
     @Published var verdicts: [PositionVerdict] = []
     @Published var incomeReport: IncomeReport? = nil
     @Published var clusters: [HoldingCluster] = []
+    @Published var sectors: [ClusterService.SectorSlice] = []
+    /// symbol → industry (Finnhub), built up as fundamentals are fetched.
+    @Published var industryBySymbol: [String: String] = [:]
 
     private var ollamaProcess: Process? = nil
     @Published var snapshots: [DailySnapshot] = []
@@ -165,7 +168,34 @@ final class AppModel: ObservableObject {
                                           timelines: timelines, fxRates: fxRates)
         clusters = ClusterService.clusters(holdings: portfolio.holdings, quotes: quotes,
                                            fxRates: fxRates)
+        sectors = ClusterService.sectors(holdings: portfolio.holdings, quotes: quotes,
+                                         fxRates: fxRates, industryBySymbol: industryBySymbol)
         runAgentIfEnabled()
+        fetchIndustriesIfNeeded()
+    }
+
+    /// Pull industry labels for the top holdings (Finnhub), cached — so the
+    /// sector breakdown fills in without hammering the API on every refresh.
+    private func fetchIndustriesIfNeeded() {
+        let key = config.finnhubApiKey
+        guard key != nil else { return }
+        let missing = sortedHoldings.prefix(30)
+            .map(\.symbol)
+            .filter { industryBySymbol[$0] == nil && ClusterService.isEquitySymbolPublic($0) }
+        guard !missing.isEmpty else { return }
+        Task {
+            for sym in missing.prefix(10) { // rate-limit friendly
+                if let f = await OutlookService.fundamentals(symbol: sym, key: key),
+                   let ind = f.industry, !ind.isEmpty {
+                    await MainActor.run { self.industryBySymbol[sym] = ind }
+                }
+            }
+            await MainActor.run {
+                self.sectors = ClusterService.sectors(holdings: self.portfolio.holdings,
+                                                      quotes: self.quotes, fxRates: self.fxRates,
+                                                      industryBySymbol: self.industryBySymbol)
+            }
+        }
     }
 
     /// The Pulse Agent: paper-only, once a day at most, scorecard in the
@@ -355,7 +385,7 @@ final class AppModel: ObservableObject {
 // Positions = per-holding depth; Analysis = all judgment (deterministic
 // flags first, local model second); Trade = drafting + paper scoring.
 enum AppSection: String, CaseIterable, Identifiable {
-    case overview, market, positions, analysis, trade, agent
+    case overview, market, positions, analysis, trade, options, agent
     var id: String { rawValue }
 
     var title: String {
@@ -365,6 +395,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .positions: return "Positions"
         case .analysis: return "Analysis"
         case .trade: return "Trade"
+        case .options: return "Options"
         case .agent: return "Agent"
         }
     }
@@ -375,6 +406,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .positions: return "chart.bar.xaxis"
         case .analysis: return "text.magnifyingglass"
         case .trade: return "arrow.left.arrow.right"
+        case .options: return "book"
         case .agent: return "sparkles"
         }
     }
@@ -405,6 +437,10 @@ struct ContentView: View {
                         Text(PulseInfo.tagline)
                             .font(.system(size: 8.5))
                             .foregroundStyle(.tertiary)
+                        Text(PulseInfo.author)
+                            .font(.system(size: 8.5, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 1)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
@@ -440,6 +476,7 @@ struct ContentView: View {
                             }
                         case .positions:
                             HoldingsCard(model: model)
+                            SectorCard(model: model)
                             IncomeCard(model: model)
                             TimelineCard(model: model)
                             if !model.portfolio.calls.isEmpty { CallsCard(model: model) }
@@ -449,6 +486,9 @@ struct ContentView: View {
                             LookupCard(model: model)
                             StatsCard(model: model)
                             AnalysisCard(app: model)
+                        case .options:
+                            OptionsLearnCard(model: model)
+                            OptionsCalculatorCard(model: model)
                         case .agent:
                             AgentCard(model: model)
                             IdeasCard(model: model)

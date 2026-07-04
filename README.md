@@ -1,46 +1,123 @@
-# Stock Tracker (Pulse)
+<div align="center">
 
-Private, local-first portfolio tracker (stocks, crypto, call options) that
-reads `~/Documents/stock-tracker/portfolio.json` and shows live value + P&L,
-since-invested timelines, and global sentiment. Everything runs on-device:
-quotes fetched directly, OCR via Apple Vision (macOS), LLM analysis via local
-Ollama. NEVER pushed to a public remote; portfolio.json and config.json are
-gitignored (positions and keys stay off git entirely).
+# Pulse
 
-Two frontends over one Swift core (`Pulse/Sources/PulseKit`):
+**A private, on-device portfolio companion that tells you the truth about your money.**
 
-- **macOS app** (SwiftUI): `cd Pulse && ./build-app.sh && open Pulse.app`
-- **Terminal dashboard** (macOS + Linux): `cd Pulse && swift run pulse-tui`
-  - `--watch` refresh every 60s · `--analyze` local-LLM read ·
-    `--import file.csv` merge a broker CSV · `--no-color`
-  - Linux: needs Swift ≥5.9 (verified with the official `swift` Docker image).
+*Built by [sinhaankur](https://github.com/sinhaankur)*
 
-Data sources (all labeled in-app): Yahoo chart endpoint (delayed quotes +
-history), CBOE delayed option chains, alternative.me crypto Fear & Greed,
-Finnhub market headlines (key in `config.json`, see `config.example.json`).
+</div>
 
-Positions: edit portfolio.json (seeded from the example on first run) or
-import a broker CSV. `acquired` dates are optional — when missing, Pulse
-estimates the invested date from where price history last crossed your cost
-basis and labels it `est.`; it never presents the guess as fact. The GROWTH
-card reconstructs the account's value day by day from those dates (holdings
-only; options have no historical marks).
+---
 
-Trade Draft (app): drafts a buy/sell against `cashAvailable` from
-config.json — share math, post-trade concentration, realized P/L — and
-copies the summary for your broker. Pulse NEVER places orders; execution
-stays in the brokerage behind its own confirmations.
+Pulse reads your holdings (stocks, ETFs, crypto, options), values them live, and gives
+you a blunt, numbers-first read on what's working, what's dying, and what to do —
+without a single byte of your financial data ever leaving your machine.
 
-Learning loop: "Log paper trade" turns a draft into a scored call
-(paper-trades.json, gitignored) — entry vs now, vs the S&P over the same
-window, direction verdict so far, in the app and pulse-tui. Daily account
-values (incl. real option marks) are recorded to snapshots.json on each
-refresh, so the growth record is real going forward. Per-holding company
-news (Finnhub, 7 days) shows for equity holdings and grounds the local
-analysis.
+It is **not** a trading platform and never places live orders on its own. It's an
+analysis and decision companion: it explains, it flags, it scores your ideas on paper,
+and it hands you a ready order ticket — but the final click stays with you, at your
+broker.
 
-Appearance follows the clock (light 07–19, dark otherwise) with a manual
-override in the app header. A menu-bar pulse shows the day move; dollar
-figures appear only while the app is unlocked.
+## Why it exists
 
-Tests: `cd Pulse && swift test` (runs on macOS and Linux).
+Most "portfolio apps" either sell your data, push you to trade, or bury the one thing
+you need behind a wall of green-and-red noise. Pulse does the opposite:
+
+- **Private by default.** Your positions, cost basis, and API keys live in local files
+  that never enter git and never touch a server. Pulse talks only to public
+  market-data endpoints, and it lists every domain it contacts right in the footer.
+- **Direct, not hedged.** Every position gets a plain call — **HOLD**, **REVIEW**, or
+  **EXIT CANDIDATE** — from countable decay markers, each with the exact rule and your
+  own numbers behind it. No "it depends."
+- **Honest about the future.** Nothing here predicts prices, because nothing can. It
+  measures what's observably true and lets you test every instinct as a paper trade,
+  scored against reality and the S&P over time, before real money moves.
+
+## What it does
+
+| Section | What you get |
+|---|---|
+| **Overview** | A health banner (am I okay?), account stats, and a ranked daily brief of your highest-dollar actions. |
+| **Market** | VIX, world-index breadth, gold/oil/dollar/yields, crypto fear & greed, and per-holding news. |
+| **Positions** | Every holding grouped by asset class, with since-invested timelines, income truth table, and trader-grade P/L bars. Add, edit, and sell by hand. |
+| **Analysis** | Committed BUY/SELL-adjacent recommendations, verdicts with tap-to-explain rules, "why is the business doing badly" fundamentals, and a local-LLM read. |
+| **Trade** | Funds-aware order drafts, a paper-trade ledger scored over time, and (optional) real paper-account execution through Interactive Brokers' API. |
+| **Options** | A from-zero options course and an honest calculator — breakeven, max loss, theta — so you can learn and test-run risk-free. |
+| **Agent** | An autonomous paper-trading agent that makes one disciplined call a day and keeps its own public scorecard. |
+
+## Install & run — any OS
+
+Pulse is one Swift package with two frontends over a shared core:
+
+- **macOS app** (SwiftUI) — the full experience.
+- **Terminal dashboard** (`pulse-tui`) — runs on **macOS and Linux**.
+
+### Requirements
+- [Swift 5.9+](https://www.swift.org/install/) (bundled with Xcode on macOS; a package
+  download on Linux).
+
+### macOS app
+```bash
+git clone https://github.com/sinhaankur/pulse.git
+cd pulse/Pulse
+./build-app.sh --install     # builds Pulse.app and copies it to /Applications
+open /Applications/Pulse.app
+```
+
+### Terminal dashboard (macOS + Linux)
+```bash
+cd pulse/Pulse
+swift run pulse-tui              # one-shot dashboard
+swift run pulse-tui --watch     # refresh every 60s
+swift run pulse-tui --analyze   # add a local-LLM read
+swift run pulse-tui --help      # all flags
+```
+
+Verified on Linux via the official `swift:latest` Docker image.
+
+## Your data (read this)
+
+On first launch Pulse creates these files in `~/Documents/stock-tracker/`, **all
+gitignored** — they never leave your device:
+
+- `portfolio.json` — your positions (seeded from `portfolio.example.json`).
+- `config.json` — API keys and settings (see `config.example.json`).
+- `snapshots.json`, `paper-trades.json`, `watchlist.json`, `agent-state.json` — local
+  history and ledgers.
+
+Add positions in the app, or import a broker CSV (a full-account export syncs; a
+partial CSV merges). Data-file permissions are locked to owner-only at every launch.
+Use **Data → Export All** and **Data → Delete All** to move or wipe everything — you
+own it.
+
+## AI, on your terms
+
+- **Local by default:** Pulse auto-starts Ollama and runs all analysis on-device.
+- **Cloud is opt-in and labeled:** set an Anthropic key in `config.json` and every
+  surface that uses it shows a clear "context leaves this machine" warning. Off unless
+  you turn it on.
+
+## Optional integrations (all opt-in, all keyless-or-your-key)
+
+- **Quotes & history:** Yahoo Finance chart endpoint (keyless).
+- **Options chains:** CBOE delayed quotes (keyless).
+- **News & fundamentals:** Finnhub (your free key in `config.json`).
+- **Execution rehearsal:** Interactive Brokers Client Portal Gateway — **paper account
+  only**, enforced in code (Pulse refuses any account that isn't a paper "DU" account).
+
+## Not financial advice
+
+Pulse is for education and personal insight. Its automated analysis can be incomplete
+or wrong, past performance doesn't predict the future, and markets are near-efficient.
+Consult a licensed professional before making financial decisions. The whole point of
+the paper-trade scorecard is to find out — honestly, over time — what does and doesn't
+work, before it costs you anything.
+
+---
+
+<div align="center">
+
+Built by **sinhaankur** · [sinhaankur.com](https://www.sinhaankur.com)
+
+</div>
