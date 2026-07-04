@@ -49,31 +49,52 @@ struct TacticalMapView: View {
 
     // MARK: layers
 
+    // Live counts, so every layer honestly shows how much data it has.
+    private var marketCount: Int { model.worldMarkets?.tickers.filter { $0.kind == .index }.count ?? 0 }
+    private var conflictCount: Int { model.worldEvents.compactMap { $0.coord }.count }
+    private var energyCount: Int { Chokepoints.all.count }
+    private var routeCount: Int { TradeRoutes.all.count }
+
     private var layersPanel: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text("LAYERS")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .tracking(2).foregroundStyle(.secondary)
-            layerToggle("Markets", $showMarkets, .cyan)
-            layerToggle("Military conflict", $showConflict, .red)
-            layerToggle("Energy chokepoints", $showEnergy, .orange)
-            layerToggle("Trade routes", $showRoutes, .blue)
+            layerToggle("Markets", $showMarkets, .cyan, count: marketCount)
+            layerToggle("Military conflict", $showConflict, .red, count: conflictCount,
+                        pending: model.worldEvents.isEmpty)
+            layerToggle("Energy chokepoints", $showEnergy, .orange, count: energyCount)
+            layerToggle("Trade routes", $showRoutes, .blue, count: routeCount)
             Divider().padding(.vertical, 2)
-            Text("\(markers.count) markers")
+            Text("\(markers.count) markers on map")
                 .font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary)
-            Text("conflict via GDELT · markets via Yahoo · all sourced, none invented")
-                .font(.system(size: 8.5)).foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
+            if model.worldEvents.isEmpty {
+                Text("conflict feed (GDELT) refreshes every ~10 min — markets, energy & routes are live now")
+                    .font(.system(size: 8.5)).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("all layers sourced (GDELT · Yahoo · public geography), none invented")
+                    .font(.system(size: 8.5)).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
-    private func layerToggle(_ label: String, _ on: Binding<Bool>, _ color: Color) -> some View {
+    private func layerToggle(_ label: String, _ on: Binding<Bool>, _ color: Color,
+                             count: Int, pending: Bool = false) -> some View {
         Button { on.wrappedValue.toggle() } label: {
             HStack(spacing: 7) {
                 Image(systemName: on.wrappedValue ? "checkmark.square.fill" : "square")
                     .font(.system(size: 11)).foregroundStyle(on.wrappedValue ? color : .secondary)
                 Text(label).font(.system(size: 11)).foregroundStyle(.primary)
                 Spacer()
+                // Live data indicator per layer.
+                if pending {
+                    Text("…").font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                } else {
+                    Text("\(count)").font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(count > 0 ? color.opacity(0.9) : Color.secondary.opacity(0.5))
+                }
             }
         }
         .buttonStyle(.plain)
