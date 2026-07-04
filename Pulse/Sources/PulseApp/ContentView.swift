@@ -471,16 +471,16 @@ struct ContentView: View {
                         HeaderCard(model: model, lock: lock)
                         switch section ?? .overview {
                         case .overview:
-                            // Command center: am I okay, and what do I do
-                            // today? Answered top to bottom.
-                            HealthBanner(model: model)
+                            // Command center, top to bottom: how am I doing,
+                            // what should I do, then the supporting picture.
+                            // The full world map lives in Market.
                             AccountStatsCard(model: model)
+                            HealthBanner(model: model)
                             DailyBriefCard(model: model)
-                            WorldMapCard(model: model)
-                            MarketStrip(model: model)
                             if !model.clusters.isEmpty { ClusterCard(model: model) }
                             GrowthCard(model: model)
                             AllocationCard(model: model)
+                            MarketStrip(model: model)
                         case .market:
                             TacticalMapView(model: model)
                             SentimentCard(model: model)

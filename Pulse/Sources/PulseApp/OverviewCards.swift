@@ -144,16 +144,31 @@ struct AccountStatsCard: View {
         let dayPct = holdingsValue > 0 ? model.dayPL / holdingsValue * 100 : 0
 
         Card(title: "ACCOUNT") {
-            HStack(spacing: 0) {
-                stat("VALUE", usd(model.totalValue), nil, .primary)
-                divider
-                stat("INVESTED", usd(model.totalCost), nil, .secondary)
-                divider
-                stat("ALL-TIME", usd(allTime), String(format: "%+.1f%%", allTimePct),
-                     allTime >= 0 ? .green : .red)
-                divider
-                stat("TODAY", usd(model.dayPL), String(format: "%+.2f%%", dayPct),
-                     model.dayPL >= 0 ? .green : .red)
+            VStack(alignment: .leading, spacing: 12) {
+                // Hero: portfolio value big, with today's move beside it.
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(usd(model.totalValue))
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .contentTransition(.numericText())
+                    HStack(spacing: 4) {
+                        Image(systemName: model.dayPL >= 0 ? "arrow.up.right" : "arrow.down.right")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("\(usd(model.dayPL)) (\(String(format: "%+.2f%%", dayPct))) today")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    }
+                    .foregroundStyle(model.dayPL >= 0 ? .green : .red)
+                    Spacer()
+                }
+                Divider()
+                // Sub-stats.
+                HStack(spacing: 0) {
+                    stat("INVESTED", usd(model.totalCost), nil, .secondary)
+                    divider
+                    stat("ALL-TIME", usd(allTime), String(format: "%+.1f%%", allTimePct),
+                         allTime >= 0 ? .green : .red)
+                    divider
+                    stat("HOLDINGS", "\(model.portfolio.holdings.count)", "positions", .secondary)
+                }
             }
         }
     }
