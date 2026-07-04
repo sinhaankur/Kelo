@@ -26,13 +26,31 @@ struct WorldMapView: View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
             ZStack {
-                // Ocean backdrop.
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(LinearGradient(colors: [Color(red: 0.05, green: 0.09, blue: 0.16),
-                                                  Color(red: 0.03, green: 0.05, blue: 0.10)],
-                                         startPoint: .top, endPoint: .bottom))
-                // Continents — real coastlines (Natural Earth, bundled).
+                // Deep-ocean radial backdrop.
+                RadialGradient(colors: [Color(red: 0.07, green: 0.13, blue: 0.22),
+                                        Color(red: 0.02, green: 0.04, blue: 0.09)],
+                               center: .center, startRadius: 20, endRadius: w * 0.7)
+                // Faint lat/long graticule for a "control room" feel.
                 Canvas { ctx, size in
+                    let line = Color.white.opacity(0.04)
+                    for gx in stride(from: 0.0, through: 360.0, by: 30.0) {
+                        let x = gx / 360 * size.width
+                        ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: size.height)) },
+                                   with: .color(line), lineWidth: 0.5)
+                    }
+                    for gy in stride(from: 0.0, through: 180.0, by: 30.0) {
+                        let y = gy / 180 * size.height
+                        ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: size.width, y: y)) },
+                                   with: .color(line), lineWidth: 0.5)
+                    }
+                }
+                // Continents — real coastlines, filled with a subtle vertical
+                // gradient and a crisp lit edge.
+                Canvas { ctx, size in
+                    let fill = GraphicsContext.Shading.linearGradient(
+                        Gradient(colors: [Color(red: 0.20, green: 0.30, blue: 0.42),
+                                          Color(red: 0.13, green: 0.20, blue: 0.30)]),
+                        startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height))
                     for poly in WorldGeo.polygons {
                         var p = Path()
                         var i = 0
@@ -42,8 +60,9 @@ struct WorldMapView: View {
                             i += 2
                         }
                         p.closeSubpath()
-                        ctx.fill(p, with: .color(Color(red: 0.16, green: 0.22, blue: 0.31)))
-                        ctx.stroke(p, with: .color(Color.white.opacity(0.10)), lineWidth: 0.4)
+                        ctx.fill(p, with: fill)
+                        ctx.stroke(p, with: .color(Color(red: 0.45, green: 0.62, blue: 0.80).opacity(0.5)),
+                                   lineWidth: 0.5)
                     }
                 }
                 // Market dots at their real coordinates.
@@ -54,6 +73,8 @@ struct WorldMapView: View {
                     }
                 }
             }
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
         }
     }
 
@@ -79,17 +100,31 @@ struct WorldMapView: View {
 
 private struct MarketDot: View {
     let ticker: WorldMarkets.Ticker
+    @State private var pulse = false
     var body: some View {
         let up = ticker.dayPct >= 0
-        let color: Color = up ? .green : .red
+        let color: Color = up ? Color(red: 0.25, green: 0.9, blue: 0.5)
+                              : Color(red: 1.0, green: 0.35, blue: 0.4)
         let intensity = min(1.0, abs(ticker.dayPct) / 4.0)
         return ZStack {
-            Circle().fill(color.opacity(0.25 + intensity * 0.4))
-                .frame(width: 10 + intensity * 10, height: 10 + intensity * 10)
-                .blur(radius: 3)
-            Circle().fill(color).frame(width: 7, height: 7)
-                .overlay(Circle().strokeBorder(.white.opacity(0.6), lineWidth: 0.5))
+            // Outer breathing halo.
+            Circle().fill(color.opacity(0.35))
+                .frame(width: 22 + intensity * 16, height: 22 + intensity * 16)
+                .blur(radius: 7)
+                .scaleEffect(pulse ? 1.15 : 0.9)
+            // Ring.
+            Circle().strokeBorder(color.opacity(0.8), lineWidth: 1.2)
+                .frame(width: 14, height: 14)
+            // Bright core.
+            Circle().fill(color).frame(width: 8, height: 8)
+                .overlay(Circle().fill(.white.opacity(0.7)).frame(width: 3, height: 3).offset(x: -1, y: -1))
+                .shadow(color: color, radius: 4)
         }
-        .help("\(ticker.name): \(String(format: "%+.2f%%", ticker.dayPct))")
+        .help("\(ticker.name): \(String(format: "%+.2f%%", ticker.dayPct)) today")
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
     }
 }

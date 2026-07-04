@@ -17,7 +17,7 @@ struct WorldMapCard: View {
                     // The actual map — continents with market pins glowing
                     // green/red at their real geographic positions.
                     WorldMapView(tickers: w.tickers)
-                        .frame(height: 200)
+                        .frame(height: 240)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                     // Region rows of glowing tiles (west → east) below the map,
                     // so commodities/crypto (no map pin) are covered too.
