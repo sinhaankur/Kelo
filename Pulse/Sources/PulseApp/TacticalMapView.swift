@@ -10,7 +10,6 @@ struct TacticalMapView: View {
     @ObservedObject var model: AppModel
 
     @State private var showMarkets = true
-    @State private var showHoldings = true
     @State private var showConflict = true
     @State private var showEnergy = true
     @State private var selected: MapMarker? = nil
@@ -19,27 +18,39 @@ struct TacticalMapView: View {
         Card(title: "GLOBAL SITUATION", trailing: "real, sourced layers · click a marker") {
             HStack(alignment: .top, spacing: 12) {
                 layersPanel.frame(width: 150)
-                ZStack(alignment: .topTrailing) {
-                    GeometryReader { geo in
-                        ZStack {
-                            WorldBasemap()
-                            ForEach(markers) { m in
-                                let p = project(m.lat, m.lon, geo.size)
-                                MarkerDot(marker: m, selected: selected?.id == m.id)
-                                    .position(p)
-                                    .onTapGesture { selected = m }
-                            }
+                // Map on the left, detail panel BESIDE it (not overlapping).
+                GeometryReader { geo in
+                    ZStack {
+                        WorldBasemap()
+                        ForEach(markers) { m in
+                            let p = project(m.lat, m.lon, geo.size)
+                            MarkerDot(marker: m, selected: selected?.id == m.id)
+                                .position(p)
+                                .onTapGesture { selected = m }
                         }
                     }
-                    .frame(height: 320)
-                    .background(Color(red: 0.04, green: 0.05, blue: 0.07))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(alignment: .bottom) { legend.padding(8) }
+                }
+                .frame(height: 300)
+                .background(Color(red: 0.04, green: 0.05, blue: 0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(alignment: .bottom) { legend.padding(8) }
+
+                // Detail panel sits in its own column so it never covers pins.
+                Group {
                     if let sel = selected {
                         DetailPanel(marker: sel) { selected = nil }
-                            .frame(width: 260).padding(10)
+                    } else {
+                        VStack(spacing: 6) {
+                            Image(systemName: "hand.tap").font(.system(size: 18))
+                                .foregroundStyle(.tertiary)
+                            Text("click a marker for detail")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
+                .frame(width: 220)
             }
         }
     }
@@ -52,7 +63,6 @@ struct TacticalMapView: View {
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .tracking(2).foregroundStyle(.secondary)
             layerToggle("Markets", $showMarkets, .cyan)
-            layerToggle("My holdings", $showHoldings, .yellow)
             layerToggle("Conflict events", $showConflict, .red)
             layerToggle("Energy chokepoints", $showEnergy, .orange)
             Divider().padding(.vertical, 2)
@@ -79,7 +89,6 @@ struct TacticalMapView: View {
     private var legend: some View {
         HStack(spacing: 12) {
             legendItem("Market", .cyan)
-            legendItem("Holding", .yellow)
             legendItem("Conflict", .red)
             legendItem("Chokepoint", .orange)
             Spacer()
@@ -111,16 +120,6 @@ struct TacticalMapView: View {
                 }
             }
         }
-        if showHoldings {
-            for (sym, ind) in model.industryBySymbol {
-                // Domicile approximated from listing suffix; US default.
-                let c = domicile(sym)
-                out.append(MapMarker(kind: .holding, lat: c.lat, lon: c.lon,
-                                     title: sym, subtitle: ind,
-                                     body: "You hold this. Industry: \(ind).",
-                                     url: nil, color: .yellow))
-            }
-        }
         if showConflict {
             for e in model.worldEvents.prefix(30) {
                 if let c = e.coord {
@@ -141,13 +140,6 @@ struct TacticalMapView: View {
         return out
     }
 
-    private func domicile(_ symbol: String) -> (lat: Double, lon: Double) {
-        if symbol.hasSuffix(".TO") || symbol.hasSuffix(".V") || symbol.hasSuffix(".CN") || symbol.hasSuffix(".NE") {
-            return (56.1, -106.3) // Canada
-        }
-        return (39.8, -98.6) // US default
-    }
-
     private func project(_ lat: Double, _ lon: Double, _ size: CGSize) -> CGPoint {
         CGPoint(x: (lon + 180) / 360 * size.width, y: (90 - lat) / 180 * size.height)
     }
@@ -155,7 +147,7 @@ struct TacticalMapView: View {
 
 // A single marker on the tactical map.
 struct MapMarker: Identifiable {
-    enum Kind { case market, holding, conflict, energy }
+    enum Kind { case market, conflict, energy }
     let id = UUID()
     let kind: Kind
     let lat: Double

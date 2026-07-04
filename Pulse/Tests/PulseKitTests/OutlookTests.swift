@@ -122,7 +122,7 @@ final class WorldMarketsTests: XCTestCase {
         let regions = w.byRegion().map(\.region)
         XCTAssertEqual(regions, ["North America", "Asia-Pacific", "Commodities"]) // ordered
         // Breadth counts only indices: 1 of 2 up.
-        XCTAssertTrue(w.breadthSummary.contains("1/2"))
+        XCTAssertTrue(w.breadthSummary.contains("1 of 2"))
     }
 }
 

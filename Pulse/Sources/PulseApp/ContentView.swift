@@ -482,7 +482,6 @@ struct ContentView: View {
                             GrowthCard(model: model)
                             AllocationCard(model: model)
                         case .market:
-                            WorldMapCard(model: model)
                             TacticalMapView(model: model)
                             SentimentCard(model: model)
                             MacroCard(model: model)

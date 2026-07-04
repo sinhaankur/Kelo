@@ -32,7 +32,7 @@ public struct WorldMarkets {
         let mood = up == idx.count ? "green across the board"
                  : up == 0 ? "red across the board"
                  : "mixed"
-        return "World equities \(up)/\(idx.count) up — \(mood)."
+        return "World stock indices \(up) of \(idx.count) up today — \(mood)."
     }
 }
 
