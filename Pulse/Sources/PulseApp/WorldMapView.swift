@@ -31,17 +31,19 @@ struct WorldMapView: View {
                     .fill(LinearGradient(colors: [Color(red: 0.05, green: 0.09, blue: 0.16),
                                                   Color(red: 0.03, green: 0.05, blue: 0.10)],
                                          startPoint: .top, endPoint: .bottom))
-                // Continents.
+                // Continents — real coastlines (Natural Earth, bundled).
                 Canvas { ctx, size in
-                    for path in WorldContinents.paths {
+                    for poly in WorldGeo.polygons {
                         var p = Path()
-                        for (i, pt) in path.enumerated() {
-                            let cg = project(pt.lat, pt.lon, size)
+                        var i = 0
+                        while i + 1 < poly.count {
+                            let cg = project(Double(poly[i + 1]), Double(poly[i]), size)
                             if i == 0 { p.move(to: cg) } else { p.addLine(to: cg) }
+                            i += 2
                         }
                         p.closeSubpath()
-                        ctx.fill(p, with: .color(Color.white.opacity(0.08)))
-                        ctx.stroke(p, with: .color(Color.white.opacity(0.14)), lineWidth: 0.6)
+                        ctx.fill(p, with: .color(Color(red: 0.16, green: 0.22, blue: 0.31)))
+                        ctx.stroke(p, with: .color(Color.white.opacity(0.10)), lineWidth: 0.4)
                     }
                 }
                 // Market dots at their real coordinates.
