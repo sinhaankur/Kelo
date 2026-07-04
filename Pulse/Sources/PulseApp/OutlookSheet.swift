@@ -67,10 +67,12 @@ struct OutlookSheet: View {
                 HStack(spacing: 10) {
                     if let r = o.ret30dPct { tile("30-DAY", pctLabel(r), r >= 0 ? .green : .red) }
                     if let r = o.ret1yPct { tile("1-YEAR", pctLabel(r), r >= 0 ? .green : .red) }
-                    // Real (inflation-adjusted) 1y return: nominal minus ~3.5%
-                    // CPI. What your money actually GAINED in buying power.
+                    // Real (inflation-adjusted) 1y return: nominal minus the
+                    // LIVE CPI YoY (falls back to ~3.5% if not yet fetched).
+                    // What your money actually GAINED in buying power.
                     if let r = o.ret1yPct {
-                        let real = r - 3.5
+                        let cpi = model.macroData?.inflationYoYPct ?? 3.5
+                        let real = r - cpi
                         tile("1-YEAR REAL", pctLabel(real), real >= 0 ? .green : .red)
                     }
                     if let b = o.benchRet1yPct { tile("S&P 1-YEAR", pctLabel(b), .secondary) }

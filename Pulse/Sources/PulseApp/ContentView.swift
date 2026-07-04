@@ -21,6 +21,7 @@ final class AppModel: ObservableObject {
     @Published var sectors: [ClusterService.SectorSlice] = []
     /// symbol → industry (Finnhub), built up as fundamentals are fetched.
     @Published var industryBySymbol: [String: String] = [:]
+    @Published var macroData: MacroData? = nil
 
     private var ollamaProcess: Process? = nil
     @Published var snapshots: [DailySnapshot] = []
@@ -265,10 +266,12 @@ final class AppModel: ObservableObject {
         Task {
             async let s = SentimentService.fetch(finnhubKey: key)
             async let news = SentimentService.holdingsNews(symbols: holdingSymbols, key: key)
-            let (sentiment, holdingsNews) = await (s, news)
+            async let macro = MacroDataService.fetch()
+            let (sentiment, holdingsNews, macroData) = await (s, news, macro)
             await MainActor.run {
                 self.sentiment = sentiment
                 self.holdingsNews = holdingsNews
+                self.macroData = macroData
             }
         }
     }
@@ -462,6 +465,8 @@ struct ContentView: View {
                             AllocationCard(model: model)
                         case .market:
                             SentimentCard(model: model)
+                            MacroCard(model: model)
+                            WorldMonitorLink()
                             WatchlistCard(model: model)
                             if model.holdingsNews.isEmpty {
                                 Card(title: "HOLDINGS NEWS") {

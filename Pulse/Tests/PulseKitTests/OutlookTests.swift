@@ -108,6 +108,21 @@ final class VerdictTests: XCTestCase {
     }
 }
 
+final class MacroDataTests: XCTestCase {
+    func testFredCsvParse() {
+        let csv = """
+        observation_date,CPIAUCSL
+        2025-05-01,320.0
+        2025-06-01,.
+        2026-05-01,333.979
+        """
+        let rows = MacroDataService.parseCsv(csv)
+        XCTAssertEqual(rows.count, 2) // the "." missing value is skipped
+        XCTAssertEqual(rows.first?.value ?? 0, 320.0, accuracy: 0.001)
+        XCTAssertEqual(rows.last?.value ?? 0, 333.979, accuracy: 0.001)
+    }
+}
+
 final class MacroLensTests: XCTestCase {
     func testEnergyStockGetsWarAndDollarChannels() {
         let e = MacroLens.exposures(industry: "Oil & Gas", country: "US")
