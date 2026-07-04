@@ -141,6 +141,22 @@ final class MacroDataTests: XCTestCase {
     }
 }
 
+final class GeoDependencyTests: XCTestCase {
+    func testSemiconductorChain() {
+        let d = GeoDependencyLens.forIndustry("Semiconductors")
+        XCTAssertTrue(d.producers.contains { $0.contains("Taiwan") })
+        XCTAssertTrue(d.chokepoints.contains { $0.contains("Taiwan") })
+        XCTAssertFalse(d.isEmpty)
+    }
+    func testOilChainHasHormuz() {
+        let d = GeoDependencyLens.forIndustry("Oil & Gas")
+        XCTAssertTrue(d.chokepoints.contains { $0.contains("Hormuz") })
+    }
+    func testUnknownIndustryIsEmpty() {
+        XCTAssertTrue(GeoDependencyLens.forIndustry("Something Obscure").isEmpty)
+    }
+}
+
 final class MacroLensTests: XCTestCase {
     func testEnergyStockGetsWarAndDollarChannels() {
         let e = MacroLens.exposures(industry: "Oil & Gas", country: "US")

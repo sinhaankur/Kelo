@@ -22,50 +22,34 @@ struct WorldMapView: View {
         "^AXJO": (-33.9, 151.2),  // Sydney
     ]
 
+    // The bundled, pre-rendered map image (anti-aliased, transparent land on
+    // clear background) — loaded once from the app bundle.
+    private static let mapImage: NSImage? = {
+        if let url = Bundle.main.url(forResource: "worldmap", withExtension: "png"),
+           let img = NSImage(contentsOf: url) { return img }
+        // Dev fallback: load from the source Resources dir.
+        let dev = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Resources/worldmap.png")
+        return NSImage(contentsOf: dev)
+    }()
+
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
             ZStack {
                 // Deep-ocean radial backdrop.
-                RadialGradient(colors: [Color(red: 0.07, green: 0.13, blue: 0.22),
+                RadialGradient(colors: [Color(red: 0.08, green: 0.15, blue: 0.26),
                                         Color(red: 0.02, green: 0.04, blue: 0.09)],
-                               center: .center, startRadius: 20, endRadius: w * 0.7)
-                // Faint lat/long graticule for a "control room" feel.
-                Canvas { ctx, size in
-                    let line = Color.white.opacity(0.04)
-                    for gx in stride(from: 0.0, through: 360.0, by: 30.0) {
-                        let x = gx / 360 * size.width
-                        ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: size.height)) },
-                                   with: .color(line), lineWidth: 0.5)
-                    }
-                    for gy in stride(from: 0.0, through: 180.0, by: 30.0) {
-                        let y = gy / 180 * size.height
-                        ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: size.width, y: y)) },
-                                   with: .color(line), lineWidth: 0.5)
-                    }
+                               center: .center, startRadius: 20, endRadius: w * 0.75)
+                // The pre-rendered world map (crisp, anti-aliased).
+                if let img = Self.mapImage {
+                    Image(nsImage: img)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(2, contentMode: .fill)
                 }
-                // Continents — real coastlines, filled with a subtle vertical
-                // gradient and a crisp lit edge.
-                Canvas { ctx, size in
-                    let fill = GraphicsContext.Shading.linearGradient(
-                        Gradient(colors: [Color(red: 0.20, green: 0.30, blue: 0.42),
-                                          Color(red: 0.13, green: 0.20, blue: 0.30)]),
-                        startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height))
-                    for poly in WorldGeo.polygons {
-                        var p = Path()
-                        var i = 0
-                        while i + 1 < poly.count {
-                            let cg = project(Double(poly[i + 1]), Double(poly[i]), size)
-                            if i == 0 { p.move(to: cg) } else { p.addLine(to: cg) }
-                            i += 2
-                        }
-                        p.closeSubpath()
-                        ctx.fill(p, with: fill)
-                        ctx.stroke(p, with: .color(Color(red: 0.45, green: 0.62, blue: 0.80).opacity(0.5)),
-                                   lineWidth: 0.5)
-                    }
-                }
-                // Market dots at their real coordinates.
+                // Live glowing market pins at real coordinates.
                 ForEach(indexTickers, id: \.symbol) { t in
                     if let c = Self.coords[t.symbol] {
                         let pos = project(c.lat, c.lon, CGSize(width: w, height: h))

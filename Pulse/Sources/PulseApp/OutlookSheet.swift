@@ -144,6 +144,20 @@ struct OutlookSheet: View {
                                 }
                             }
                         }
+
+                        // Geo-dependency: what countries/resources/routes this
+                        // stock's supply chain actually rides on.
+                        let dep = GeoDependencyLens.forIndustry(f.industry)
+                        if !dep.isEmpty {
+                            Text("SUPPLY-CHAIN DEPENDENCY — the chain of reaction")
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .tracking(1).foregroundStyle(.tertiary).padding(.top, 4)
+                            if !dep.inputs.isEmpty { chainRow("depends on", dep.inputs, .cyan) }
+                            if !dep.producers.isEmpty { chainRow("from", dep.producers, .orange) }
+                            if !dep.chokepoints.isEmpty { chainRow("shipped via", dep.chokepoints, .red) }
+                            Text(dep.note).font(.system(size: 10.5)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 } else if o.fundamentals == nil, model.config.finnhubApiKey != nil {
                     Text("no company fundamentals for this ticker (ETFs, crypto and some listings have none) — the chart signals above are the read")
@@ -271,6 +285,18 @@ struct OutlookSheet: View {
     }
 
     private func pctLabel(_ v: Double) -> String { String(format: "%+.1f%%", v) }
+
+    private func chainRow(_ label: String, _ items: [String], _ color: Color) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(label)
+                .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                .foregroundStyle(.tertiary).frame(width: 66, alignment: .leading)
+            Text(items.joined(separator: " · "))
+                .font(.system(size: 11)).foregroundStyle(color)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
+    }
 
     private func businessDirection(_ f: StockOutlook.Fundamentals) -> String {
         let bad = f.healthNotes.filter(noteIsBad).count
