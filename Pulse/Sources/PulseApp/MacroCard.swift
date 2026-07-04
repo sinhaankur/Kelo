@@ -49,31 +49,3 @@ struct MacroCard: View {
     }
 }
 
-/// World Monitor — a companion global-intelligence dashboard (open-source,
-/// AGPL). Pulse links to it rather than embedding it, to keep the licenses
-/// clean; credited to its author.
-struct WorldMonitorLink: View {
-    var body: some View {
-        Card(title: "GEOPOLITICAL DASHBOARD", trailing: "companion tool · opens in browser") {
-            HStack(spacing: 10) {
-                Image(systemName: "globe.americas.fill")
-                    .font(.system(size: 20)).foregroundStyle(.blue)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("World Monitor")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Real-time global intelligence — 500+ feeds, conflict tracking, a country-instability index. Open it alongside Pulse for the geopolitical picture behind the macro numbers.")
-                        .font(.system(size: 10.5)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("open-source (AGPL) by koala73 — a separate project, linked not embedded")
-                        .font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary)
-                }
-                Spacer()
-                Button("Open") {
-                    if let url = URL(string: "https://github.com/koala73/worldmonitor") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-            }
-        }
-    }
-}

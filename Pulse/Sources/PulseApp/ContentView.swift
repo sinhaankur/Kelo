@@ -22,6 +22,7 @@ final class AppModel: ObservableObject {
     /// symbol → industry (Finnhub), built up as fundamentals are fetched.
     @Published var industryBySymbol: [String: String] = [:]
     @Published var macroData: MacroData? = nil
+    @Published var worldMarkets: WorldMarkets? = nil
 
     private var ollamaProcess: Process? = nil
     @Published var snapshots: [DailySnapshot] = []
@@ -267,11 +268,13 @@ final class AppModel: ObservableObject {
             async let s = SentimentService.fetch(finnhubKey: key)
             async let news = SentimentService.holdingsNews(symbols: holdingSymbols, key: key)
             async let macro = MacroDataService.fetch()
-            let (sentiment, holdingsNews, macroData) = await (s, news, macro)
+            async let world = WorldMarketsService.fetch()
+            let (sentiment, holdingsNews, macroData, worldMarkets) = await (s, news, macro, world)
             await MainActor.run {
                 self.sentiment = sentiment
                 self.holdingsNews = holdingsNews
                 self.macroData = macroData
+                self.worldMarkets = worldMarkets
             }
         }
     }
@@ -459,14 +462,15 @@ struct ContentView: View {
                             HealthBanner(model: model)
                             AccountStatsCard(model: model)
                             DailyBriefCard(model: model)
+                            WorldMapCard(model: model)
                             MarketStrip(model: model)
                             if !model.clusters.isEmpty { ClusterCard(model: model) }
                             GrowthCard(model: model)
                             AllocationCard(model: model)
                         case .market:
+                            WorldMapCard(model: model)
                             SentimentCard(model: model)
                             MacroCard(model: model)
-                            WorldMonitorLink()
                             WatchlistCard(model: model)
                             if model.holdingsNews.isEmpty {
                                 Card(title: "HOLDINGS NEWS") {

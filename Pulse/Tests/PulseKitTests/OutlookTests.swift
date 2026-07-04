@@ -108,6 +108,24 @@ final class VerdictTests: XCTestCase {
     }
 }
 
+final class WorldMarketsTests: XCTestCase {
+    func testRegionGroupingAndBreadth() {
+        let t = [
+            WorldMarkets.Ticker(symbol: "^GSPC", name: "S&P 500", region: "North America",
+                                price: 100, dayPct: 1.0, kind: .index),
+            WorldMarkets.Ticker(symbol: "^N225", name: "Nikkei", region: "Asia-Pacific",
+                                price: 100, dayPct: -0.5, kind: .index),
+            WorldMarkets.Ticker(symbol: "GC=F", name: "Gold", region: "Commodities",
+                                price: 100, dayPct: 2.0, kind: .commodity),
+        ]
+        let w = WorldMarkets(tickers: t, fetchedAt: Date())
+        let regions = w.byRegion().map(\.region)
+        XCTAssertEqual(regions, ["North America", "Asia-Pacific", "Commodities"]) // ordered
+        // Breadth counts only indices: 1 of 2 up.
+        XCTAssertTrue(w.breadthSummary.contains("1/2"))
+    }
+}
+
 final class MacroDataTests: XCTestCase {
     func testFredCsvParse() {
         let csv = """
