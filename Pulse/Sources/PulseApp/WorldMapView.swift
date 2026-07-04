@@ -23,9 +23,16 @@ struct WorldMapView: View {
         "^AXJO": (-33.9, 151.2),  // Sydney
     ]
 
+    /// Exchange coordinate lookup, shared with the tactical map.
+    static func coord(for symbol: String) -> (lat: Double, lon: Double)? {
+        coords[symbol]
+    }
+    /// The shared basemap image, for the tactical view.
+    static var basemap: NSImage? { mapImage }
+
     // The bundled, pre-rendered map image (anti-aliased, transparent land on
     // clear background) — loaded once from the app bundle.
-    private static let mapImage: NSImage? = {
+    static let mapImage: NSImage? = {
         if let url = Bundle.main.url(forResource: "worldmap", withExtension: "png"),
            let img = NSImage(contentsOf: url) { return img }
         // Dev fallback: load from the source Resources dir.

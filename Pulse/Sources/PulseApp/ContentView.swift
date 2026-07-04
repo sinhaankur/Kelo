@@ -23,6 +23,8 @@ final class AppModel: ObservableObject {
     @Published var industryBySymbol: [String: String] = [:]
     @Published var macroData: MacroData? = nil
     @Published var worldMarkets: WorldMarkets? = nil
+    @Published var worldEvents: [WorldEvent] = []
+    private var lastGdeltFetch: Date? = nil
 
     private var ollamaProcess: Process? = nil
     @Published var snapshots: [DailySnapshot] = []
@@ -277,6 +279,18 @@ final class AppModel: ObservableObject {
                 self.worldMarkets = worldMarkets
             }
         }
+        refreshWorldEvents()
+    }
+
+    /// GDELT asks for ≤1 request / 5s — fetch conflict events at most every
+    /// 10 minutes, in the background.
+    func refreshWorldEvents() {
+        if let t = lastGdeltFetch, Date().timeIntervalSince(t) < 600 { return }
+        lastGdeltFetch = Date()
+        Task {
+            let events = await GdeltService.events()
+            await MainActor.run { self.worldEvents = events }
+        }
     }
 
     func importCsv(from url: URL) -> String {
@@ -469,6 +483,7 @@ struct ContentView: View {
                             AllocationCard(model: model)
                         case .market:
                             WorldMapCard(model: model)
+                            TacticalMapView(model: model)
                             SentimentCard(model: model)
                             MacroCard(model: model)
                             WatchlistCard(model: model)

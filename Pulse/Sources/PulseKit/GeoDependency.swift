@@ -16,6 +16,26 @@ public struct GeoDependency {
     public var isEmpty: Bool { inputs.isEmpty && producers.isEmpty && chokepoints.isEmpty }
 }
 
+/// Maritime energy/trade chokepoints — real, fixed geography. Public open
+/// data; these are the routes global supply chains flow through.
+public enum Chokepoints {
+    public struct Point { public let name: String; public let lat: Double; public let lon: Double; public let note: String }
+    public static let all: [Point] = [
+        Point(name: "Strait of Hormuz", lat: 26.6, lon: 56.3,
+              note: "~20% of the world's oil passes here. Any conflict near it spikes energy prices globally."),
+        Point(name: "Suez Canal", lat: 30.5, lon: 32.3,
+              note: "Europe–Asia shipping shortcut. A blockage (as in 2021) backs up global trade for weeks."),
+        Point(name: "Strait of Malacca", lat: 2.5, lon: 101.4,
+              note: "The main Asia–Middle East route — chips, oil and manufactured goods all flow through it."),
+        Point(name: "Panama Canal", lat: 9.1, lon: -79.7,
+              note: "Atlantic–Pacific link. Droughts cut its capacity and raise shipping costs."),
+        Point(name: "Bab-el-Mandeb", lat: 12.6, lon: 43.3,
+              note: "Red Sea gateway. Attacks here reroute ships around Africa, adding weeks and cost."),
+        Point(name: "Bosphorus", lat: 41.1, lon: 29.1,
+              note: "Black Sea grain and oil exports pass through here — a war chokepoint for food prices."),
+    ]
+}
+
 public enum GeoDependencyLens {
     public static func forIndustry(_ industry: String?) -> GeoDependency {
         let ind = (industry ?? "").lowercased()

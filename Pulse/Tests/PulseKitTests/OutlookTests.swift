@@ -141,6 +141,20 @@ final class MacroDataTests: XCTestCase {
     }
 }
 
+final class TacticalDataTests: XCTestCase {
+    func testCountryCentersCoverConflictZones() {
+        XCTAssertNotNil(CountryGeo.center("Ukraine"))
+        XCTAssertNotNil(CountryGeo.center("Israel"))
+        XCTAssertNotNil(CountryGeo.center("Sudan"))
+        XCTAssertNil(CountryGeo.center("Atlantis"))
+    }
+    func testChokepointsPresent() {
+        XCTAssertTrue(Chokepoints.all.contains { $0.name.contains("Hormuz") })
+        XCTAssertTrue(Chokepoints.all.contains { $0.name.contains("Suez") })
+        XCTAssertTrue(Chokepoints.all.allSatisfy { abs($0.lat) <= 90 && abs($0.lon) <= 180 })
+    }
+}
+
 final class GeoDependencyTests: XCTestCase {
     func testSemiconductorChain() {
         let d = GeoDependencyLens.forIndustry("Semiconductors")
