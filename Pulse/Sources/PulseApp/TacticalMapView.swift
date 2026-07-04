@@ -18,22 +18,13 @@ struct TacticalMapView: View {
         Card(title: "GLOBAL SITUATION", trailing: "real, sourced layers · click a marker") {
             HStack(alignment: .top, spacing: 12) {
                 layersPanel.frame(width: 150)
-                // Map on the left, detail panel BESIDE it (not overlapping).
-                GeometryReader { geo in
-                    ZStack {
-                        WorldBasemap()
-                        ForEach(markers) { m in
-                            let p = project(m.lat, m.lon, geo.size)
-                            MarkerDot(marker: m, selected: selected?.id == m.id)
-                                .position(p)
-                                .onTapGesture { selected = m }
-                        }
-                    }
-                }
-                .frame(height: 300)
-                .background(Color(red: 0.04, green: 0.05, blue: 0.07))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(alignment: .bottom) { legend.padding(8) }
+                // Interactive vector map: countries with active conflict events
+                // tint red; hover names a country; markers overlay on top.
+                VectorMapView(shading: conflictShading, markers: markers,
+                              selectedID: selected?.id) { selected = $0 }
+                    .frame(height: 300)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(alignment: .bottom) { legend.padding(8) }
 
                 // Detail panel sits in its own column so it never covers pins.
                 Group {
@@ -140,8 +131,32 @@ struct TacticalMapView: View {
         return out
     }
 
-    private func project(_ lat: Double, _ lon: Double, _ size: CGSize) -> CGPoint {
-        CGPoint(x: (lon + 180) / 360 * size.width, y: (90 - lat) / 180 * size.height)
+    /// Countries with active conflict events → red tint (intensity by count).
+    /// Maps GDELT country names to Natural Earth names where they differ.
+    private var conflictShading: [String: Color] {
+        guard showConflict else { return [:] }
+        var counts: [String: Int] = [:]
+        for e in model.worldEvents {
+            let name = Self.neName(e.country)
+            counts[name, default: 0] += 1
+        }
+        var out: [String: Color] = [:]
+        for (name, n) in counts {
+            out[name] = Color.red.opacity(min(0.8, 0.3 + Double(n) * 0.12))
+        }
+        return out
+    }
+
+    // GDELT uses some names differently from Natural Earth.
+    static func neName(_ gdelt: String) -> String {
+        switch gdelt {
+        case "United States": return "United States of America"
+        case "Russia": return "Russia"
+        case "South Korea": return "South Korea"
+        case "North Korea": return "North Korea"
+        case "Czech Republic": return "Czechia"
+        default: return gdelt
+        }
     }
 }
 
@@ -159,18 +174,8 @@ struct MapMarker: Identifiable {
     let color: Color
 }
 
-/// The pre-rendered coastline map, dimmed for the tactical look.
-private struct WorldBasemap: View {
-    var body: some View {
-        if let img = WorldMapView.basemap {
-            Image(nsImage: img).resizable().interpolation(.high)
-                .aspectRatio(2, contentMode: .fill)
-                .opacity(0.5).saturation(0.4)
-        }
-    }
-}
 
-private struct MarkerDot: View {
+struct MarkerDot: View {
     let marker: MapMarker
     let selected: Bool
     var body: some View {
