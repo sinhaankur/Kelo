@@ -271,14 +271,15 @@ final class AppModel: ObservableObject {
         refresh()
     }
 
-    /// Edit quantity / cost of a position (a partial sell, an add, a
+    /// Edit quantity / cost / date of a position (a partial sell, an add, a
     /// correction). Persists and recomputes.
-    func updateHolding(_ symbol: String, quantity: Double, costBasis: Double) {
+    func updateHolding(_ symbol: String, quantity: Double, costBasis: Double,
+                       acquired: String?) {
         var p = Portfolio.load()
         if let i = p.holdings.firstIndex(where: { $0.symbol == symbol }) {
             let old = p.holdings[i]
             p.holdings[i] = Holding(symbol: old.symbol, quantity: quantity,
-                                    costBasis: costBasis, acquired: old.acquired,
+                                    costBasis: costBasis, acquired: acquired ?? old.acquired,
                                     currency: old.currency, assetClass: old.assetClass)
             try? p.save()
             timelineSignature = ""
@@ -287,17 +288,21 @@ final class AppModel: ObservableObject {
     }
 
     /// Add a position by hand (a buy Pulse should track before the next
-    /// broker export).
-    func addHolding(symbol: String, quantity: Double, costBasis: Double, currency: String) {
+    /// broker export). The acquired date, when given, makes the timeline
+    /// exact instead of estimated.
+    func addHolding(symbol: String, quantity: Double, costBasis: Double,
+                    currency: String, acquired: String?) {
         var p = Portfolio.load()
         let s = symbol.trimmingCharacters(in: .whitespaces).uppercased()
         guard !s.isEmpty else { return }
         if let i = p.holdings.firstIndex(where: { $0.symbol == s }) {
+            let old = p.holdings[i]
             p.holdings[i] = Holding(symbol: s, quantity: quantity, costBasis: costBasis,
-                                    currency: currency)
+                                    acquired: acquired, currency: currency,
+                                    assetClass: old.assetClass)
         } else {
             p.holdings.append(Holding(symbol: s, quantity: quantity, costBasis: costBasis,
-                                      currency: currency))
+                                      acquired: acquired, currency: currency))
         }
         try? p.save()
         timelineSignature = ""
@@ -801,6 +806,31 @@ private struct HoldingsCard: View {
     @State private var adding = false
     var body: some View {
         Card(title: "HOLDINGS", trailing: "grouped by asset class · tap a symbol for its outlook") {
+            // Always-visible manage toolbar — add and edit are first-class,
+            // not buried in a right-click.
+            HStack(spacing: 8) {
+                Button { adding = true } label: {
+                    Label("Add position", systemImage: "plus.circle.fill")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+                Button { importCsv() } label: {
+                    Label("Import / sync CSV", systemImage: "square.and.arrow.down")
+                        .font(.system(size: 11))
+                }
+                .controlSize(.small)
+                if !importStatus.isEmpty {
+                    Text(importStatus)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Text("\(model.portfolio.holdings.count) positions")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.bottom, 4)
+
             // Stocks / ETFs / Crypto sections, each sorted by size.
             let groups: [(String, [Holding])] = {
                 let sorted = model.sortedHoldings
@@ -818,7 +848,7 @@ private struct HoldingsCard: View {
             Grid(alignment: .trailing, horizontalSpacing: 16, verticalSpacing: 10) {
                 GridRow {
                     head("SYMBOL", leading: true); head(""); head("QTY"); head("PRICE")
-                    head("DAY"); head("VALUE"); head("P/L")
+                    head("DAY"); head("VALUE"); head("P/L"); head("")
                 }
                 ForEach(groups, id: \.0) { cls, members in
                 GridRow {
@@ -831,7 +861,7 @@ private struct HoldingsCard: View {
                     Text(usd(members.reduce(0) { $0 + model.holdingValue($1) }))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.tertiary)
-                        .gridCellColumns(4)
+                        .gridCellColumns(5)
                 }
                 .padding(.top, 4)
                 ForEach(members) { h in
@@ -860,8 +890,23 @@ private struct HoldingsCard: View {
                         Text(q.map { usd(model.displayPrice($0)) } ?? "…").cell()
                         DayPill(pct: q?.dayChangePct)
                         Text(q != nil ? usd(value) : "—").cell()
-                        Text(q != nil ? usd(pl) : "—").cell()
-                            .foregroundStyle(pl >= 0 ? Color.green : Color.red)
+                        PLCell(pl: q != nil ? pl : nil,
+                               pct: q != nil && model.holdingCost(h) > 0
+                                    ? pl / model.holdingCost(h) * 100 : nil)
+                        // Always-visible edit / sell buttons per row.
+                        HStack(spacing: 6) {
+                            Button { editing = h } label: {
+                                Image(systemName: "pencil").font(.system(size: 10))
+                            }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                            .help("Edit \(h.symbol) — quantity, cost, date")
+                            Button { confirmSell(h) } label: {
+                                Image(systemName: "trash").font(.system(size: 10))
+                            }
+                            .buttonStyle(.plain).foregroundStyle(.tertiary)
+                            .help("Mark \(h.symbol) sold / remove")
+                        }
+                        .gridColumnAlignment(.center)
                     }
                     .contextMenu {
                         Button("Edit \(h.symbol)…") { editing = h }
@@ -875,18 +920,6 @@ private struct HoldingsCard: View {
                     }
                 }
                 }
-            }
-            HStack(spacing: 8) {
-                Button("Import / sync CSV…") { importCsv() }
-                    .font(.system(size: 11))
-                Button("Add position…") { adding = true }
-                    .font(.system(size: 11))
-                Text(importStatus.isEmpty
-                     ? "right-click a row to edit or mark sold · full broker export replaces holdings, partial CSV merges"
-                     : importStatus)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                Spacer()
             }
         }
         .sheet(item: $editing) { h in EditHoldingSheet(model: model, holding: h) }
@@ -998,6 +1031,41 @@ struct Sparkline: View {
                 RoundedRectangle(cornerRadius: 2).fill(Color.primary.opacity(0.06))
             }
         }
+    }
+}
+
+/// Trader-grade P/L cell: dollar figure, percent, and a magnitude bar that
+/// fills green (up) or red (down) so the eye scans winners and losers
+/// instantly without reading numbers.
+struct PLCell: View {
+    let pl: Double?
+    let pct: Double?
+    var body: some View {
+        guard let pl, let pct else {
+            return AnyView(Text("—").cell().foregroundStyle(.secondary))
+        }
+        let color: Color = pl >= 0 ? .green : .red
+        let fill = min(1.0, abs(pct) / 50.0) // 50%+ move = full bar
+        return AnyView(
+            VStack(alignment: .trailing, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(usd(pl)).font(.system(size: 12.5, design: .monospaced))
+                    Text(String(format: "%+.0f%%", pct))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .opacity(0.85)
+                }
+                .foregroundStyle(color)
+                GeometryReader { geo in
+                    ZStack(alignment: pl >= 0 ? .leading : .trailing) {
+                        Capsule().fill(Color.primary.opacity(0.06))
+                        Capsule().fill(color.opacity(0.55))
+                            .frame(width: max(3, geo.size.width * fill))
+                    }
+                }
+                .frame(height: 3)
+            }
+            .frame(width: 96)
+        )
     }
 }
 
