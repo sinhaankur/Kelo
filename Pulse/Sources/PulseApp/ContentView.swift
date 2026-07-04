@@ -252,10 +252,56 @@ final class AppModel: ObservableObject {
             timelineSignature = "" // positions changed; re-detect timelines
             refresh()
             let skipped = result.skippedRows > 0 ? " (\(result.skippedRows) rows skipped)" : ""
-            return "imported \(result.imported.count) positions\(skipped)"
+            let verb = result.isFullAccountReport ? "synced" : "imported"
+            return "\(verb) \(result.imported.count) positions\(skipped)"
         } catch {
             return "import failed: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Editing (the portfolio is yours to change)
+
+    /// Remove a position — mirrors selling it in the broker. Writes back to
+    /// portfolio.json so every card recomputes.
+    func removeHolding(_ symbol: String) {
+        var p = Portfolio.load()
+        p.holdings.removeAll { $0.symbol == symbol }
+        try? p.save()
+        timelineSignature = ""
+        refresh()
+    }
+
+    /// Edit quantity / cost of a position (a partial sell, an add, a
+    /// correction). Persists and recomputes.
+    func updateHolding(_ symbol: String, quantity: Double, costBasis: Double) {
+        var p = Portfolio.load()
+        if let i = p.holdings.firstIndex(where: { $0.symbol == symbol }) {
+            let old = p.holdings[i]
+            p.holdings[i] = Holding(symbol: old.symbol, quantity: quantity,
+                                    costBasis: costBasis, acquired: old.acquired,
+                                    currency: old.currency, assetClass: old.assetClass)
+            try? p.save()
+            timelineSignature = ""
+            refresh()
+        }
+    }
+
+    /// Add a position by hand (a buy Pulse should track before the next
+    /// broker export).
+    func addHolding(symbol: String, quantity: Double, costBasis: Double, currency: String) {
+        var p = Portfolio.load()
+        let s = symbol.trimmingCharacters(in: .whitespaces).uppercased()
+        guard !s.isEmpty else { return }
+        if let i = p.holdings.firstIndex(where: { $0.symbol == s }) {
+            p.holdings[i] = Holding(symbol: s, quantity: quantity, costBasis: costBasis,
+                                    currency: currency)
+        } else {
+            p.holdings.append(Holding(symbol: s, quantity: quantity, costBasis: costBasis,
+                                      currency: currency))
+        }
+        try? p.save()
+        timelineSignature = ""
+        refresh()
     }
 
     /// Market value of a call position (US options are USD → converted to
@@ -364,8 +410,11 @@ struct ContentView: View {
                         HeaderCard(model: model, lock: lock)
                         switch section ?? .overview {
                         case .overview:
-                            // My account in 5 seconds; market detail lives in
-                            // Market — only its one-line summary appears here.
+                            // Command center: am I okay, and what do I do
+                            // today? Answered top to bottom.
+                            HealthBanner(model: model)
+                            AccountStatsCard(model: model)
+                            DailyBriefCard(model: model)
                             MarketStrip(model: model)
                             if !model.clusters.isEmpty { ClusterCard(model: model) }
                             GrowthCard(model: model)
@@ -748,6 +797,8 @@ private struct AllocationCard: View {
 private struct HoldingsCard: View {
     @ObservedObject var model: AppModel
     @State private var importStatus = ""
+    @State private var editing: Holding? = nil
+    @State private var adding = false
     var body: some View {
         Card(title: "HOLDINGS", trailing: "grouped by asset class · tap a symbol for its outlook") {
             // Stocks / ETFs / Crypto sections, each sorted by size.
@@ -812,19 +863,45 @@ private struct HoldingsCard: View {
                         Text(q != nil ? usd(pl) : "—").cell()
                             .foregroundStyle(pl >= 0 ? Color.green : Color.red)
                     }
+                    .contextMenu {
+                        Button("Edit \(h.symbol)…") { editing = h }
+                        Button("Sold / remove \(h.symbol)", role: .destructive) {
+                            confirmSell(h)
+                        }
+                        Divider()
+                        Button("Open outlook") {
+                            model.outlookTarget = AppModel.OutlookTarget(symbol: h.symbol)
+                        }
+                    }
                 }
                 }
             }
             HStack(spacing: 8) {
-                Button("Import CSV…") { importCsv() }
+                Button("Import / sync CSV…") { importCsv() }
+                    .font(.system(size: 11))
+                Button("Add position…") { adding = true }
                     .font(.system(size: 11))
                 Text(importStatus.isEmpty
-                     ? "broker export with symbol / quantity / cost columns — merges into portfolio.json"
+                     ? "right-click a row to edit or mark sold · full broker export replaces holdings, partial CSV merges"
                      : importStatus)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.tertiary)
                 Spacer()
             }
+        }
+        .sheet(item: $editing) { h in EditHoldingSheet(model: model, holding: h) }
+        .sheet(isPresented: $adding) { EditHoldingSheet(model: model, holding: nil) }
+    }
+
+    private func confirmSell(_ h: Holding) {
+        let alert = NSAlert()
+        alert.messageText = "Mark \(h.symbol) as sold?"
+        alert.informativeText = "Removes it from your tracked portfolio (mirror the actual sale in your broker). You can re-import anytime."
+        alert.addButton(withTitle: "Remove \(h.symbol)")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            model.removeHolding(h.symbol)
+            importStatus = "removed \(h.symbol) — do the actual sale in your broker"
         }
     }
 
