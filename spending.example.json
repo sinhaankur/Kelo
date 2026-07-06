@@ -1,0 +1,20 @@
+{
+  "_note": "PLACEHOLDERS — copy to spending.json and replace with your own. All on-device, gitignored, never leaves your machine. Amounts in your base currency. Log expenses here (or import a bank CSV). Budgets are monthly limits. The goal is what your spending is traded off against.",
+  "budgets": [
+    { "category": "Dining",   "limit": 300 },
+    { "category": "Shopping", "limit": 150 },
+    { "category": "Grocery",  "limit": 400 },
+    { "category": "Transport","limit": 120 }
+  ],
+  "goal": {
+    "name": "Rebuild emergency fund",
+    "target": 5500,
+    "saved": 0,
+    "monthlyContribution": 420,
+    "targetDate": "2026-12-31"
+  },
+  "expenses": [
+    { "id": "00000000-0000-0000-0000-000000000001", "date": "2026-07-02", "amount": 42.5, "category": "Dining",   "note": "example — replace me" },
+    { "id": "00000000-0000-0000-0000-000000000002", "date": "2026-07-04", "amount": 88.0, "category": "Grocery",  "note": "example — replace me" }
+  ]
+}
