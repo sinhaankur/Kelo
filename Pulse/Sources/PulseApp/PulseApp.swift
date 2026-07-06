@@ -67,7 +67,7 @@ enum DataManager {
 
     static func wipeAll() {
         let alert = NSAlert()
-        alert.messageText = "Delete all Pulse data?"
+        alert.messageText = "Delete all \(PulseInfo.name) data?"
         alert.informativeText = "Removes portfolio, config (including API keys), snapshots, paper trades and watchlist from this machine. This cannot be undone."
         alert.alertStyle = .critical
         alert.addButton(withTitle: "Delete Everything")
@@ -97,13 +97,13 @@ private struct MenuBarSummary: View {
             Divider()
             Button("Refresh") { model.refresh() }
         } else {
-            Text("Pulse is locked — unlock in the app window")
+            Text("\(PulseInfo.name) is locked — unlock in the app window")
         }
-        Button("Open Pulse") {
+        Button("Open \(PulseInfo.name)") {
             NSApp.activate(ignoringOtherApps: true)
             for w in NSApp.windows where w.canBecomeMain { w.makeKeyAndOrderFront(nil) }
         }
         Divider()
-        Button("Quit Pulse") { NSApp.terminate(nil) }
+        Button("Quit \(PulseInfo.name)") { NSApp.terminate(nil) }
     }
 }

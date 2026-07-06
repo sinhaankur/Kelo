@@ -27,6 +27,7 @@ final class AppModel: ObservableObject {
     private var lastGdeltFetch: Date? = nil
 
     private var ollamaProcess: Process? = nil
+    @Published var health = HealthStore.load()
     @Published var snapshots: [DailySnapshot] = []
     @Published var lastRefresh: Date? = nil
     @Published var refreshing = false
@@ -106,6 +107,7 @@ final class AppModel: ObservableObject {
         portfolio = Portfolio.load() // re-read so edits to the JSON show up
         paperTrades = PaperLedger.load()
         snapshots = SnapshotStore.load()
+        health = HealthStore.load() // re-read so hand-edits + logs show up
         watchlist = Watchlist.load()
         // Paper-trade + watchlist symbols get quotes too, even when not held.
         let symbols = portfolio.holdings.map(\.symbol) + portfolio.calls.map(\.underlying)
@@ -396,6 +398,41 @@ final class AppModel: ObservableObject {
             acc + (quotes[h.symbol].map { $0.dayChange * fx($0.currency) * h.quantity } ?? 0)
         }
     }
+
+    /// The unified body + money reading for today — Kelo's hero. Assembles
+    /// real signals from both sides and hands them to the pure `DayState`
+    /// engine; anything not known is left out, never guessed.
+    var dayState: DayState {
+        let holdingsValue = portfolio.holdings.reduce(0.0) { $0 + holdingValue($1) }
+        let dayFraction = holdingsValue > 0 ? dayPL / holdingsValue : nil
+        // Spend vs plan this month, as a fraction (1.1 = 10% over). nil when
+        // no budgets are set — the reading simply omits it.
+        let card = SpendService.scorecard(SpendStore.load())
+        let spendFraction = card.budgeted > 0 ? card.spent / card.budgeted : nil
+        let inputs = DayState.Inputs(
+            today: todayHealth,
+            restingHRBaseline: health.restingHRBaseline(),
+            recentLoad: health.recentLoad(),
+            portfolioDayFraction: dayFraction,
+            spendVsBudget: spendFraction)
+        return DayState(inputs)
+    }
+
+    /// Today's logged health day, if the user has one for the current date.
+    var todayHealth: HealthDay? {
+        let today = isoDateString(Date())
+        return health.days.first { $0.date == today }
+    }
+
+    /// Record/replace today's body signals — only ever called from an explicit
+    /// user submit (Kelo never logs on your behalf). Persists, then re-reads.
+    func logHealthDay(sleepHours: Double?, restingHR: Double?, readiness: Int?,
+                      sessions: [TrainingSession]) {
+        let day = HealthDay(date: isoDateString(Date()), sleepHours: sleepHours,
+                            restingHR: restingHR, readiness: readiness, sessions: sessions)
+        HealthStore.upsert(day)
+        health = HealthStore.load()
+    }
 }
 
 // MARK: - Root
@@ -451,7 +488,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 210)
                 .safeAreaInset(edge: .bottom) {
                     VStack(spacing: 1) {
-                        Text("Pulse v\(PulseInfo.version)")
+                        Text("\(PulseInfo.name) v\(PulseInfo.version)")
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .foregroundStyle(.secondary)
                         Text(PulseInfo.tagline)
@@ -474,6 +511,7 @@ struct ContentView: View {
                             // Command center, top to bottom: how am I doing,
                             // what should I do, then the supporting picture.
                             // The full world map lives in Market.
+                            DayStateCard(model: model)   // Kelo's hero: body + money, today
                             AccountStatsCard(model: model)
                             HealthBanner(model: model)
                             DailyBriefCard(model: model)
@@ -757,7 +795,7 @@ private struct HeaderCard: View {
             .buttonStyle(.plain)
             .padding(8)
             .background(Circle().fill(Color.primary.opacity(0.07)))
-            .help("Lock Pulse (Touch ID to reopen)")
+            .help("Lock \(PulseInfo.name) (Touch ID to reopen)")
             .contextMenu {
                 Toggle("Require unlock on launch", isOn: lock.$lockEnabled)
             }

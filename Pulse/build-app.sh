@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Pulse.app from the SwiftPM executable — no Xcode project needed.
+# Build Kelo.app from the SwiftPM executable (internal target is still "Pulse") — no Xcode project needed.
 #   ./build-app.sh            build + sign in place
 #   ./build-app.sh --install  also copy to /Applications (Launchpad/Spotlight)
 set -euo pipefail
@@ -12,7 +12,9 @@ VERSION=$(sed -n 's/.*version = "\([^"]*\)".*/\1/p' Sources/PulseKit/PulseInfo.s
 echo "[1/4] swift build (release)..."
 swift build -c release
 
-APP="Pulse.app"
+# Bundle folder is branded (Kelo.app); the executable inside stays the SwiftPM
+# product name (Pulse) — CFBundleExecutable must match the binary name.
+APP="Kelo.app"
 BIN=".build/release/Pulse"
 echo "[2/4] Bundling $APP v$VERSION..."
 rm -rf "$APP"
@@ -24,15 +26,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleName</key><string>Pulse</string>
-  <key>CFBundleDisplayName</key><string>Pulse</string>
-  <key>CFBundleIdentifier</key><string>com.sinhaankur.pulse</string>
+  <key>CFBundleName</key><string>Kelo</string>
+  <key>CFBundleDisplayName</key><string>Kelo</string>
+  <key>CFBundleIdentifier</key><string>com.sinhaankur.kelo</string>
   <key>CFBundleExecutable</key><string>Pulse</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
-  <key>LSApplicationCategoryType</key><string>public.app-category.finance</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.healthcare-fitness</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>© 2026 Ankur Sinha — private build, never distributed</string>
@@ -44,9 +46,10 @@ codesign --force --deep -s - "$APP"
 
 if [[ "${1:-}" == "--install" ]]; then
   echo "[4/4] Installing to /Applications..."
-  rm -rf /Applications/Pulse.app
-  ditto "$APP" /Applications/Pulse.app   # ditto preserves signing metadata
-  echo "Installed: /Applications/Pulse.app"
+  rm -rf /Applications/Pulse.app          # remove the old pre-rebrand bundle
+  rm -rf "/Applications/$APP"
+  ditto "$APP" "/Applications/$APP"        # ditto preserves signing metadata
+  echo "Installed: /Applications/$APP"
 else
   echo "[4/4] Skipping install (pass --install to copy to /Applications)"
 fi

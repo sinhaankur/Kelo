@@ -1,5 +1,6 @@
 import SwiftUI
 import LocalAuthentication
+import PulseKit
 
 /// Privacy lock — this window shows real money, so it opens locked and
 /// unlocks with Touch ID (or the account password as fallback). Re-lock any
@@ -48,8 +49,8 @@ struct LockGate<Content: View>: View {
             if !lock.unlocked {
                 VStack(spacing: 12) {
                     Image(systemName: "lock.fill").font(.system(size: 28)).foregroundStyle(.secondary)
-                    Text("Pulse is locked").font(.system(size: 14, weight: .semibold))
-                    Text("your positions stay private").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text("\(PulseInfo.name) is locked").font(.system(size: 14, weight: .semibold))
+                    Text("your body and money stay private").font(.system(size: 11)).foregroundStyle(.secondary)
                     Button(lock.failed ? "Try again" : "Unlock") { lock.unlockIfNeeded() }
                         .keyboardShortcut(.return)
                 }
