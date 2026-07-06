@@ -512,6 +512,7 @@ struct ContentView: View {
                             // what should I do, then the supporting picture.
                             // The full world map lives in Market.
                             DayStateCard(model: model)   // Kelo's hero: body + money, today
+                            LeakCard(model: model)       // "am I bleeding money?" — biggest leaks
                             AccountStatsCard(model: model)
                             HealthBanner(model: model)
                             DailyBriefCard(model: model)
