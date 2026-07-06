@@ -1,0 +1,71 @@
+# Generates Kelo.xcodeproj for the iOS / iPadOS app.
+#
+#   xcodegen generate      # (re)create Kelo.xcodeproj from this spec
+#   open Kelo.xcodeproj    # then run on a device/simulator
+#
+# The macOS app + TUI keep building from SwiftPM (build-app.sh / swift build).
+# This project exists only because an iOS app bundle needs entitlements
+# (HealthKit + iCloud) and an Info.plist that SwiftPM can't produce. It links
+# PulseKit straight from the local package so every platform shares one core.
+name: Kelo
+options:
+  bundleIdPrefix: com.sinhaankur
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  PulseKit:
+    path: .
+
+targets:
+  Kelo:
+    type: application
+    platform: iOS
+    supportedDestinations: [iOS, iPad]
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources/KeloiOS
+    dependencies:
+      - package: PulseKit
+        product: PulseKit
+    info:
+      path: iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Kelo
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSHealthShareUsageDescription: >-
+          Kelo reads your sleep, resting heart rate and workouts to show how
+          your body and your money line up. It only reads Health, never writes
+          it, and only after you tap sync.
+    entitlements:
+      path: iOS/Kelo.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.sinhaankur.kelo
+        com.apple.developer.icloud-services:
+          - CloudDocuments
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.com.sinhaankur.kelo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sinhaankur.kelo
+        PRODUCT_NAME: Kelo
+        MARKETING_VERSION: "0.27.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"   # iPhone + iPad
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        # Simulator builds need no team; a device build sets DEVELOPMENT_TEAM.

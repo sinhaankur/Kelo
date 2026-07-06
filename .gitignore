@@ -10,3 +10,7 @@ watchlist.json
 agent-state.json
 spending.json
 health.json
+
+# Generated Xcode project (regenerate with: xcodegen generate)
+Kelo.xcodeproj/
+*.xcuserstate

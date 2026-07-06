@@ -68,10 +68,9 @@ public struct Portfolio: Codable {
         self.calls = calls
     }
 
-    public static var dirURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/stock-tracker")
-    }
+    /// The data directory — resolved per-platform (and, later, iCloud) by the
+    /// single `KeloStorage` seam. macOS keeps `~/Documents/stock-tracker`.
+    public static var dirURL: URL { KeloStorage.baseURL }
     public static var fileURL: URL {
         dirURL.appendingPathComponent("portfolio.json")
     }
