@@ -14,3 +14,4 @@ health.json
 # Generated Xcode project (regenerate with: xcodegen generate)
 Kelo.xcodeproj/
 *.xcuserstate
+profile.json

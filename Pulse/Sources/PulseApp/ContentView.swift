@@ -424,6 +424,30 @@ final class AppModel: ObservableObject {
         return health.days.first { $0.date == today }
     }
 
+    /// "How much SHOULD I have saved by now?" — the age/gender/location
+    /// benchmark, fed by real data: annual expenses annualized from logged
+    /// spending, and current saved = portfolio value + brokerage cash.
+    var benchmark: Benchmark.Result {
+        let profile = ProfileStore.load()
+        let annualExpenses = annualExpensesEstimate()
+        let saved = totalValue + (config.cashAvailable ?? 0)
+        return Benchmark.compute(profile: profile,
+                                 annualExpenses: annualExpenses,
+                                 currentSaved: saved)
+    }
+
+    /// Annualize spending from the logged expenses. Uses the most recent full
+    /// month's total × 12 when there's data; falls back to this-month × 12.
+    private func annualExpensesEstimate() -> Double {
+        let data = SpendStore.load()
+        let totals = SpendService.monthTotals(data)
+        // this-month spend is partial early in the month; scale by month progress.
+        let (dayOfMonth, daysInMonth) = SpendService.monthProgress()
+        let frac = daysInMonth > 0 ? Double(dayOfMonth) / Double(daysInMonth) : 1
+        let projectedMonth = frac > 0 ? totals.spent / frac : totals.spent
+        return projectedMonth * 12
+    }
+
     /// Record/replace today's body signals — only ever called from an explicit
     /// user submit (Kelo never logs on your behalf). Persists, then re-reads.
     func logHealthDay(sleepHours: Double?, restingHR: Double?, readiness: Int?,
@@ -513,6 +537,7 @@ struct ContentView: View {
                             // The full world map lives in Market.
                             DayStateCard(model: model)   // Kelo's hero: body + money, today
                             LeakCard(model: model)       // "am I bleeding money?" — biggest leaks
+                            BenchmarkCard(model: model)  // "where should I be?" — savings benchmark
                             AccountStatsCard(model: model)
                             HealthBanner(model: model)
                             DailyBriefCard(model: model)

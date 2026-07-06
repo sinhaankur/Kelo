@@ -1,0 +1,9 @@
+{
+  "age" : 30,
+  "annualSalary" : 90000,
+  "country" : "canada",
+  "gender" : "unspecified",
+  "pensionContributionYears" : 5,
+  "residencyYears" : 5,
+  "retirementAge" : 65
+}
