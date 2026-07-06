@@ -23,6 +23,8 @@ if args.contains("--help") || args.contains("-h") {
       --watch          refresh every 60s
       --analyze        add a local-LLM (Ollama) read, grounded in live data
       --import <csv>   merge broker CSV (symbol/quantity/cost[/date]) into portfolio.json
+      --spend          budgets, savings goal + under-budget streak (this month)
+      --afford <amt> [category]   pre-spend check: can you afford it, and what does it cost your goal?
       --no-color       disable ANSI colors
       --version        print version
     """)
@@ -93,9 +95,79 @@ if let i = args.firstIndex(of: "--import") {
     }
 }
 
+// A tiny money formatter for the spend views (independent of Money's currency).
+func spendMoney(_ v: Double) -> String {
+    let n = NumberFormatter(); n.numberStyle = .decimal
+    n.maximumFractionDigits = v.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2
+    return "$" + (n.string(from: NSNumber(value: v)) ?? String(format: "%.0f", v))
+}
+
+// --afford <amount> [category]: the pre-spend check — "can I afford this?".
+// Prints the trade-off (budget headroom + goal delay) BEFORE you spend, then exits.
+if let i = args.firstIndex(of: "--afford") {
+    let rest = Array(args[args.index(after: i)...])
+    guard let amt = rest.first.flatMap({ Double($0.replacingOccurrences(of: "$", with: "")) }) else {
+        print("usage: pulse-tui --afford <amount> [category]"); exit(1)
+    }
+    let category = rest.count > 1 ? rest[1] : nil
+    let data = SpendStore.load()
+    let c = SpendService.canAfford(amount: amt, category: category, data: data)
+    print("")
+    print(Ansi.header("  Can I afford \(spendMoney(amt))\(category.map { " on \($0)" } ?? "")?"))
+    if let left = c.categoryLeftBefore, let cat = category {
+        let color = c.breaksBudget ? Ansi.red : Ansi.green
+        print("  \(cat) budget: \(color(spendMoney(left))) left this month")
+    }
+    if let dd = c.goalDelayDays, dd >= 1 {
+        print("  \(Ansi.yellow("Delays your goal by \(dd) day\(dd == 1 ? "" : "s")"))")
+    }
+    print("  " + (c.breaksBudget ? Ansi.red(c.verdict) : Ansi.dim(c.verdict)))
+    print("")
+    exit(0)
+}
+
 let config = AppConfig.load()
 Money.displayCode = config.displayCurrency ?? "USD"
 Security.hardenDataFiles()
+
+// --spend: the budget + savings-goal + streak view. One-shot, then exit.
+if args.contains("--spend") {
+    let data = SpendStore.load()
+    let statuses = SpendService.budgetStatuses(data)
+    let totals = SpendService.monthTotals(data)
+    let streak = SpendService.underBudgetStreak(data)
+    let card = SpendService.scorecard(data)
+
+    print("")
+    print(Ansi.header("  SPEND — this month"))
+    print("")
+    if statuses.isEmpty {
+        print("  No budgets yet. Add them in \(SpendStore.fileURL.path)")
+    }
+    for s in statuses {
+        let barW = 16
+        let filled = min(barW, Int((s.fraction * Double(barW)).rounded()))
+        let bar = String(repeating: "█", count: filled) + String(repeating: "░", count: barW - filled)
+        let pct = Int((s.fraction * 100).rounded())
+        let leftStr = s.limit > 0 ? "\(spendMoney(s.left)) left" : "no budget"
+        var line = "  \(s.category.padding(toLength: 10, withPad: " ", startingAt: 0)) \(bar) \(pct)%  \(leftStr)"
+        if s.over { line = Ansi.red(line) } else if s.paceHot { line = Ansi.yellow(line) }
+        print(line)
+        if s.paceHot { print("     " + Ansi.yellow("⚠ burning fast for this point in the month")) }
+    }
+    print("")
+    print("  Total: \(spendMoney(totals.spent)) of \(spendMoney(totals.budgeted)) budgeted")
+    if let g = data.goal {
+        let gp = Int((g.progressFraction * 100).rounded())
+        print("  Goal:  \(g.name) — \(spendMoney(g.saved)) / \(spendMoney(g.target)) (\(gp)%)"
+              + (g.monthsToGoal.map { ", ~\(Int($0.rounded())) mo at plan" } ?? ""))
+    }
+    if streak > 0 { print("  Streak: " + Ansi.green("\(streak) day\(streak == 1 ? "" : "s") under budget")) }
+    print("")
+    print("  " + (card.biggestLeakCategory != nil ? Ansi.red(card.verdict) : Ansi.dim(card.verdict)))
+    print("")
+    exit(0)
+}
 
 @MainActor
 func render() async {
