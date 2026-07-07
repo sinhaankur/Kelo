@@ -29,6 +29,7 @@ targets:
     dependencies:
       - package: KeloKit
         product: KeloKit
+      - target: KeloWatch     # embed the watch app in the iOS app
     info:
       path: iOS/Info.plist
       properties:
@@ -73,3 +74,31 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: DS8C97S284
         # Simulator builds need no team; the device build signs with the team above.
+
+  # Apple Watch — the glance surface. A companion watchOS app sharing KeloKit.
+  KeloWatch:
+    type: application
+    platform: watchOS
+    deploymentTarget: "10.0"
+    sources:
+      - path: Sources/KeloWatch
+    dependencies:
+      - package: KeloKit
+        product: KeloKit
+    info:
+      path: watch/Info.plist
+      properties:
+        CFBundleDisplayName: Kelo
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.sinhaankur.forge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sinhaankur.forge.watchkitapp
+        PRODUCT_NAME: Kelo
+        MARKETING_VERSION: "0.27.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "4"     # Apple Watch
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: DS8C97S284

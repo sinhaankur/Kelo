@@ -49,15 +49,18 @@ public struct DayState {
         /// Spending so far this month vs. the sum of category budgets, as a
         /// fraction (1.1 = 10% over plan). nil = no budgets set.
         public var spendVsBudget: Double?
+        /// Today's self-rated mood, 1 (low) – 5 (great). nil = not logged.
+        public var mood: Int?
 
         public init(today: HealthDay? = nil, restingHRBaseline: Double? = nil,
                     recentLoad: Double = 0, portfolioDayFraction: Double? = nil,
-                    spendVsBudget: Double? = nil) {
+                    spendVsBudget: Double? = nil, mood: Int? = nil) {
             self.today = today
             self.restingHRBaseline = restingHRBaseline
             self.recentLoad = recentLoad
             self.portfolioDayFraction = portfolioDayFraction
             self.spendVsBudget = spendVsBudget
+            self.mood = mood
         }
     }
 
@@ -109,6 +112,20 @@ public struct DayState {
                 score -= 1
                 reasons.append(.init(icon: "bolt.slash", good: false,
                     text: "you rated yourself \(r)/10 — running low"))
+            }
+        }
+
+        // ── Mood: how you actually feel ────────────────────────────────
+        if let mood = i.mood {
+            signals += 1
+            if mood >= 4 {
+                score += 1
+                reasons.append(.init(icon: "face.smiling", good: true,
+                    text: "you're feeling good today"))
+            } else if mood <= 2 {
+                score -= 1
+                reasons.append(.init(icon: "cloud.rain", good: false,
+                    text: "mood is low — be kind to yourself; don't force big decisions"))
             }
         }
 
