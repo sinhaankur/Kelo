@@ -1,46 +1,46 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-// PulseKit (core) and the terminal dashboard build everywhere (macOS + Linux);
+// KeloKit (core) and the terminal dashboard build everywhere (macOS + Linux);
 // the SwiftUI app target only exists on macOS.
 var targets: [Target] = [
-    .target(name: "PulseKit", path: "Sources/PulseKit"),
+    .target(name: "KeloKit", path: "Sources/KeloKit"),
     .executableTarget(
-        name: "PulseTUI",
-        dependencies: ["PulseKit"],
-        path: "Sources/PulseTUI"
+        name: "KeloTUI",
+        dependencies: ["KeloKit"],
+        path: "Sources/KeloTUI"
     ),
     .testTarget(
-        name: "PulseKitTests",
-        dependencies: ["PulseKit"],
-        path: "Tests/PulseKitTests"
+        name: "KeloKitTests",
+        dependencies: ["KeloKit"],
+        path: "Tests/KeloKitTests"
     ),
 ]
 var products: [Product] = [
-    .executable(name: "pulse-tui", targets: ["PulseTUI"]),
+    .executable(name: "kelo-tui", targets: ["KeloTUI"]),
     // Shared pure-logic core, linked by the iOS/iPadOS app (generated via
-    // xcodegen) so every platform runs the exact same PulseKit.
-    .library(name: "PulseKit", targets: ["PulseKit"]),
+    // xcodegen) so every platform runs the exact same KeloKit.
+    .library(name: "KeloKit", targets: ["KeloKit"]),
 ]
 
 #if os(macOS)
 targets.append(.executableTarget(
-    name: "Pulse",
-    dependencies: ["PulseKit"],
-    path: "Sources/PulseApp",
+    name: "Kelo",
+    dependencies: ["KeloKit"],
+    path: "Sources/KeloApp",
     linkerSettings: [
         .linkedFramework("Vision"),
         .linkedFramework("LocalAuthentication"),
     ]
 ))
-products.append(.executable(name: "Pulse", targets: ["Pulse"]))
+products.append(.executable(name: "Kelo", targets: ["Kelo"]))
 #endif
 
 let package = Package(
-    name: "Pulse",
-    // PulseKit is pure Foundation, so it builds for every Apple platform;
-    // the SwiftUI Pulse app target stays macOS-gated above. iOS/iPadOS get
-    // their own app target from the xcodegen spec, linking PulseKit.
+    name: "Kelo",
+    // KeloKit is pure Foundation, so it builds for every Apple platform;
+    // the SwiftUI Kelo app target stays macOS-gated above. iOS/iPadOS get
+    // their own app target from the xcodegen spec, linking KeloKit.
     platforms: [.macOS(.v13), .iOS(.v17)],
     products: products,
     targets: targets

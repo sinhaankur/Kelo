@@ -1,5 +1,5 @@
 import SwiftUI
-import PulseKit
+import KeloKit
 
 // Turns the shared KeloBrand tokens into SwiftUI Color/Font, matching
 // sinhaankur.com. Fonts fall back to close system equivalents until the real

@@ -6,7 +6,7 @@
 # The macOS app + TUI keep building from SwiftPM (build-app.sh / swift build).
 # This project exists only because an iOS app bundle needs entitlements
 # (HealthKit + iCloud) and an Info.plist that SwiftPM can't produce. It links
-# PulseKit straight from the local package so every platform shares one core.
+# KeloKit straight from the local package so every platform shares one core.
 name: Kelo
 options:
   bundleIdPrefix: com.sinhaankur
@@ -15,7 +15,7 @@ options:
   createIntermediateGroups: true
 
 packages:
-  PulseKit:
+  KeloKit:
     path: .
 
 targets:
@@ -27,8 +27,8 @@ targets:
     sources:
       - path: Sources/KeloiOS
     dependencies:
-      - package: PulseKit
-        product: PulseKit
+      - package: KeloKit
+        product: KeloKit
     info:
       path: iOS/Info.plist
       properties:

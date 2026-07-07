@@ -1,7 +1,7 @@
 import SwiftUI
-import PulseKit
+import KeloKit
 
-// Kelo for iPhone + iPad. Shares the exact PulseKit core with the Mac app;
+// Kelo for iPhone + iPad. Shares the exact KeloKit core with the Mac app;
 // its reason to exist is the phone's access to Apple Health, which the Mac
 // can't read. This first cut is the unified hero — today's Day State fed by
 // HealthKit — plus honest, user-driven sync. Everything stays on-device and
@@ -17,7 +17,7 @@ struct KeloApp: App {
     }
 }
 
-/// The iOS view-model. Deliberately thin — it reuses PulseKit's stores and the
+/// The iOS view-model. Deliberately thin — it reuses KeloKit's stores and the
 /// pure `DayState` engine, adding only the HealthKit bridge that's unique to
 /// this platform.
 @MainActor
