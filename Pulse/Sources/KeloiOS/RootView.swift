@@ -36,12 +36,11 @@ struct BodyView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    MoodPicker(model: model)
+                    StreakChips(streaks: model.streaks)
                     if model.movementAvailable { movementCard }
                     if !prs.isEmpty { prsCard }
                     if !insights.isEmpty { dnaCard }
-                    if !model.movementAvailable && prs.isEmpty && insights.isEmpty {
-                        emptyHint("Sync movement, log a workout, or import your DNA to see your body here.")
-                    }
                 }
                 .padding(16)
             }

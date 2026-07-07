@@ -11,8 +11,10 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 
 ## Now
 
-- [ ] **Mood + streak UI** — a mood picker (1–5 / face) + streak chips surfacing
-      the Discipline data that's built but not yet tappable.
+- [ ] **Opt-in in-app AI assistant** — let an AI assistant connect to Kelo *if
+      the user allows* (explicit toggle). On-device Apple Foundation Models
+      preferred (private, offline); it reads Kelo's own data to answer "how am I
+      doing?" — never acts, never sends data out. Off by default.
 
 ## Next
 
@@ -41,3 +43,5 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 - [x] Facial mood detection — on-device ARKit blendshapes → valence → mood,
       labelled "from facial expression" (honest). Opt-in camera, nothing leaves
       the device. *(Anita's first task.)*
+- [x] Mood + streak UI — tap-to-log mood picker (5 faces) + discipline streak
+      chips on the Body tab. *(Anita's second task.)*

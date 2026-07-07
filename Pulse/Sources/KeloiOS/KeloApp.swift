@@ -70,6 +70,18 @@ final class KeloModel: ObservableObject {
         objectWillChange.send()
     }
 
+    /// Hand-log today's mood — the honest, deliberate self-rating.
+    func logMood(_ mood: Int) {
+        MoodStore.upsert(MoodEntry(date: isoDateString(Date()), mood: mood))
+        objectWillChange.send()
+    }
+
+    /// Today's mood, if logged (by hand or from a face reading).
+    var todayMood: MoodEntry? { MoodStore.today() }
+
+    /// The discipline streaks — trained / slept / checked in.
+    var streaks: [Streak] { Discipline.streaks(health: health, mood: MoodStore.load()) }
+
     var todayHealth: HealthDay? {
         let today = isoDateString(Date())
         return health.days.first { $0.date == today }
