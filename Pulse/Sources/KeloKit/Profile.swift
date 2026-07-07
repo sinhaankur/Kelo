@@ -47,12 +47,16 @@ public struct Profile: Codable {
     /// 40 for the full amount). For a few years on a permit this is small →
     /// little-to-no OAS. nil = assume same as contribution years.
     public var residencyYears: Int?
+    /// Height in centimetres — lets Kelo compute BMI from weight, so it never
+    /// depends on the scale reporting BMI itself.
+    public var heightCm: Double?
 
     public init(age: Int? = nil, gender: Gender = .unspecified,
                 annualSalary: Double? = nil, country: Country = .canada,
                 retirementAge: Int = 65,
                 pensionContributionYears: Int? = nil,
-                residencyYears: Int? = nil) {
+                residencyYears: Int? = nil,
+                heightCm: Double? = nil) {
         self.age = age
         self.gender = gender
         self.annualSalary = annualSalary
@@ -60,6 +64,7 @@ public struct Profile: Codable {
         self.retirementAge = retirementAge
         self.pensionContributionYears = pensionContributionYears
         self.residencyYears = residencyYears
+        self.heightCm = heightCm
     }
 
     public var yearsToRetirement: Int? {

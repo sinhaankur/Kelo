@@ -57,6 +57,10 @@ public final class HealthKitReader {
         var t: Set<HKObjectType> = []
         if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { t.insert(sleep) }
         if let hr = HKObjectType.quantityType(forIdentifier: .restingHeartRate) { t.insert(hr) }
+        // Body composition — a smart scale writes these to Health; Kelo reads them.
+        if let mass = HKObjectType.quantityType(forIdentifier: .bodyMass) { t.insert(mass) }
+        if let fat = HKObjectType.quantityType(forIdentifier: .bodyFatPercentage) { t.insert(fat) }
+        if let lean = HKObjectType.quantityType(forIdentifier: .leanBodyMass) { t.insert(lean) }
         t.insert(HKObjectType.workoutType())
         return t
     }
@@ -81,6 +85,38 @@ public final class HealthKitReader {
         return HealthKitDay(sleepHours: try await sleep,
                             restingHR: try await hr,
                             workouts: try await workouts)
+    }
+
+    /// Read the most recent body-composition sample (weight / body-fat / lean),
+    /// e.g. from a smart scale that wrote to Health. Returns a BodyMeasurement
+    /// dated to when it was recorded, tagged source "scale".
+    public func readBodyComposition() async throws -> BodyMeasurement? {
+        guard Self.isAvailable else { throw HealthKitError.unavailable }
+        async let w = latestQuantity(.bodyMass, unit: .gramUnit(with: .kilo))
+        async let f = latestQuantity(.bodyFatPercentage, unit: .percent())
+        async let l = latestQuantity(.leanBodyMass, unit: .gramUnit(with: .kilo))
+        let weight = try await w
+        let fat = try await f
+        let lean = try await l
+        guard weight != nil || fat != nil || lean != nil else { return nil }
+        // body-fat comes back as a fraction (0…1) from .percent(); show 0…100.
+        let fatPct = fat.map { $0 * 100 }
+        return BodyMeasurement(date: isoDateString(Date()), weightKg: weight,
+                               bodyFatPercent: fatPct, leanMassKg: lean, source: "scale")
+    }
+
+    /// Most recent sample of a quantity type, in the given unit.
+    private func latestQuantity(_ id: HKQuantityTypeIdentifier, unit: HKUnit) async throws -> Double? {
+        guard let type = HKQuantityType.quantityType(forIdentifier: id) else { return nil }
+        let sort = [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)]
+        return try await withCheckedThrowingContinuation { cont in
+            let q = HKSampleQuery(sampleType: type, predicate: nil, limit: 1, sortDescriptors: sort) { _, samples, error in
+                if let error { cont.resume(throwing: error); return }
+                let v = (samples?.first as? HKQuantitySample)?.quantity.doubleValue(for: unit)
+                cont.resume(returning: v)
+            }
+            store.execute(q)
+        }
     }
 
     // MARK: individual queries

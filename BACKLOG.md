@@ -18,6 +18,13 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 
 ## Next
 
+- [ ] **Body composition** — weight / BMI / body-fat / lean mass as a domain.
+      Fed by (a) a smart scale via HealthKit (bodyMass, bodyMassIndex,
+      bodyFatPercentage, leanBodyMass — most scales already write these), and
+      (b) an uploaded clinical report (GE/DEXA/InBody don't do consumer BLE —
+      OCR the PDF/photo). Compute BMI from weight+height so Kelo never depends
+      on the machine reporting it. Label BMI as the blunt measure it is; prefer
+      body-fat/lean when available. Height added to Profile.
 - [ ] **Own GPS activity tracker (Strava-style)** — Core Location background route
       recording + MapKit route view; session folds into TrainingSession/MovementDay.
       Ankur's own take, toward the open-source Fitness+ vision.
