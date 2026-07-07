@@ -62,6 +62,14 @@ final class KeloModel: ObservableObject {
             spendVsBudget: spendFraction))
     }
 
+    /// Record a mood from a facial-expression reading — labelled as such, never
+    /// mistaken for a hand-logged feeling.
+    func logFacialMood(_ mood: Int) {
+        MoodStore.upsert(MoodEntry(date: isoDateString(Date()), mood: mood,
+                                   note: "from facial expression"))
+        objectWillChange.send()
+    }
+
     var todayHealth: HealthDay? {
         let today = isoDateString(Date())
         return health.days.first { $0.date == today }

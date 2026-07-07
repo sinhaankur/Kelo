@@ -11,17 +11,11 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 
 ## Now
 
-- [ ] **Facial mood detection (on-device, ARKit).** A "check in with your face"
-      camera view on iOS: read expression via ARKit blendshapes on-device, map to
-      a valence → set today's mood. Auto-reading per Ankur's call, BUT the written
-      MoodEntry note must say "from facial expression" (honest: expression ≠ mood,
-      never silently indistinguishable from a felt rating). Opt-in camera; nothing
-      leaves the device. Feeds the existing mood → DayState → Discipline ring.
+- [ ] **Mood + streak UI** — a mood picker (1–5 / face) + streak chips surfacing
+      the Discipline data that's built but not yet tappable.
 
 ## Next
 
-- [ ] **Mood + streak UI** — a mood picker (1–5 / face) + streak chips surfacing
-      the Discipline data that's built but not yet tappable.
 - [ ] **Own GPS activity tracker (Strava-style)** — Core Location background route
       recording + MapKit route view; session folds into TrainingSession/MovementDay.
       Ankur's own take, toward the open-source Fitness+ vision.
@@ -44,3 +38,6 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 - [x] iOS/iPad app + Apple Watch app (shared KeloKit).
 - [x] Mood + discipline streaks.
 - [x] Three rings (Body · Money · Discipline) on phone, watch, desktop.
+- [x] Facial mood detection — on-device ARKit blendshapes → valence → mood,
+      labelled "from facial expression" (honest). Opt-in camera, nothing leaves
+      the device. *(Anita's first task.)*

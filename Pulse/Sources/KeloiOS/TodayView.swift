@@ -6,6 +6,7 @@ import KeloKit
 /// and one obvious action: sync today from Health.
 struct TodayView: View {
     @ObservedObject var model: KeloModel
+    @State private var faceCheckIn = false
 
     var body: some View {
         NavigationStack {
@@ -13,6 +14,14 @@ struct TodayView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     RingsSummary(rings: model.rings)
                         .padding(.top, 4)
+                    Button {
+                        faceCheckIn = true
+                    } label: {
+                        Label("Check in with your face", systemImage: "faceid")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered).tint(.keloAccent)
                     heroCard
                     if let s = model.statusLine {
                         Label(s, systemImage: "info.circle")
@@ -26,6 +35,9 @@ struct TodayView: View {
             }
             .navigationTitle("Kelo")
             .background(Color.keloPaper.ignoresSafeArea())
+            .sheet(isPresented: $faceCheckIn) {
+                FaceCheckInView(model: model)
+            }
         }
         .tint(.keloAccent)
     }

@@ -51,6 +51,9 @@ targets:
         NSMotionUsageDescription: >-
           Kelo uses motion to tell when you're sitting, standing, walking or
           running, and to count your steps — so it can nudge you to move.
+        NSCameraUsageDescription: >-
+          Kelo reads your facial expression on-device for the optional face
+          check-in. The camera feed is never recorded, saved, or sent anywhere.
     entitlements:
       path: iOS/Kelo.entitlements
       properties:

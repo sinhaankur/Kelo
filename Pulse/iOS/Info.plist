@@ -20,6 +20,8 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Kelo reads your facial expression on-device for the optional face check-in. The camera feed is never recorded, saved, or sent anywhere.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Kelo reads your sleep, resting heart rate and workouts to show how your body and your money line up. It only reads Health, never writes it, and only after you tap sync.</string>
 	<key>NSMotionUsageDescription</key>
