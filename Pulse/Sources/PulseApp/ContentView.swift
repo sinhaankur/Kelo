@@ -2,6 +2,18 @@ import SwiftUI
 import UniformTypeIdentifiers
 import PulseKit
 
+// Kelo brand colours on macOS, from the shared KeloBrand tokens so the desktop
+// matches the iOS app and sinhaankur.com. (The iOS target has its own richer
+// KeloTheme; the Mac app mainly needs the amber accent to feel on-brand.)
+extension Color {
+    init(_ rgb: KeloBrand.RGB) {
+        self.init(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b, opacity: 1)
+    }
+    static let keloAccent = Color(KeloBrand.accent)
+    static let keloGood   = Color(KeloBrand.good)
+    static let keloBad    = Color(KeloBrand.bad)
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var portfolio = Portfolio.load()
@@ -602,6 +614,7 @@ struct ContentView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(isDark ? .dark : .light)
+        .tint(.keloAccent)   // warm amber-gold, matching sinhaankur.com
         .frame(minWidth: 900, minHeight: 640)
         .sheet(item: $model.outlookTarget) { target in
             OutlookSheet(model: model, symbol: target.symbol)

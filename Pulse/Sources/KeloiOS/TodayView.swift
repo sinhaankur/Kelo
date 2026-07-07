@@ -23,8 +23,9 @@ struct TodayView: View {
                 .padding(16)
             }
             .navigationTitle("Kelo")
-            .background(Color(.systemGroupedBackground))
+            .background(Color.keloPaper.ignoresSafeArea())
         }
+        .tint(.keloAccent)
     }
 
     // MARK: hero
@@ -40,12 +41,10 @@ struct TodayView: View {
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(color)
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("TODAY")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .tracking(2).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Eyebrow("Today")
                     Text(state.headline)
-                        .font(.system(size: 21, weight: .semibold, design: .rounded))
+                        .font(KeloFont.display(23, .semibold))
                         .foregroundStyle(color)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -107,9 +106,7 @@ struct TodayView: View {
     private var signalSummary: some View {
         let today = model.todayHealth
         return VStack(alignment: .leading, spacing: 12) {
-            Text("TODAY'S SIGNALS")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .tracking(2).foregroundStyle(.secondary)
+            Eyebrow("Today's signals")
             HStack(spacing: 12) {
                 metric("Sleep", today?.sleepHours.map { String(format: "%.1fh", $0) }, "bed.double.fill")
                 metric("Rest HR", today?.restingHR.map { String(format: "%.0f", $0) }, "heart.fill")
@@ -118,23 +115,24 @@ struct TodayView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemGroupedBackground)))
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.keloInk.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.keloInk.opacity(0.06)))
     }
 
     private func metric(_ label: String, _ value: String?, _ icon: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Image(systemName: icon).font(.system(size: 15)).foregroundStyle(.secondary)
-            Text(value ?? "—").font(.system(size: 18, weight: .semibold, design: .rounded))
-            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Image(systemName: icon).font(.system(size: 15)).foregroundStyle(Color.keloAccent)
+            Text(value ?? "—").font(KeloFont.display(19, .semibold)).foregroundStyle(Color.keloInk)
+            Text(label).font(KeloFont.mono(10)).foregroundStyle(Color.keloMuted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func tint(_ s: DayState.Standing) -> Color {
         switch s {
-        case .strong: return .green
-        case .steady: return .blue
-        case .strained: return .orange
+        case .strong: return .keloGood
+        case .steady: return .keloAccent
+        case .strained: return .keloBad
         }
     }
     private func icon(_ s: DayState.Standing) -> String {
