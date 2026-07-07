@@ -5,6 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Include the macOS SwiftUI app target in the package graph (Package.swift gates
+# it on this so the iOS xcodegen project doesn't build its AppKit sources).
+export KELO_MACOS_APP=1
+
 # Version comes from KeloInfo.swift — one source of truth.
 VERSION=$(sed -n 's/.*version = "\([^"]*\)".*/\1/p' Sources/KeloKit/KeloInfo.swift | head -1)
 [[ -n "$VERSION" ]] || { echo "could not read version from KeloInfo.swift"; exit 1; }

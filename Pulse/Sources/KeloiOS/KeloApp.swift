@@ -12,7 +12,8 @@ struct KeloApp: App {
     @StateObject private var model = KeloModel()
     var body: some Scene {
         WindowGroup {
-            TodayView(model: model)
+            RootView(model: model)
+                .onAppear { model.startMovement() }
         }
     }
 }
@@ -24,14 +25,26 @@ struct KeloApp: App {
 final class KeloModel: ObservableObject {
     @Published var health = HealthStore.load()
     @Published var portfolio = Portfolio.load()
+    @Published var movement = MovementStore.today()
+    @Published var liveActivity: ActivityState = .unknown
     @Published var lastSync: Date?
     @Published var syncing = false
     @Published var healthAuthorized = false
     @Published var statusLine: String?
 
     private let reader = HealthKitReader()
+    private let motion = MovementService()
 
     var healthKitAvailable: Bool { HealthKitReader.isAvailable }
+    var movementAvailable: Bool { MovementService.isAvailable }
+
+    /// Begin the live walk/run/still stream — the signal the Watch doesn't
+    /// auto-classify. Opt-in; the OS prompts for motion access on first call.
+    func startMovement() {
+        motion.startLiveUpdates { [weak self] state in
+            Task { @MainActor in self?.liveActivity = state }
+        }
+    }
 
     /// Today's Day State. On iOS the money side is read from the synced JSON
     /// (portfolio/spending) if present; the body side is HealthKit-fed. Unknown
@@ -71,6 +84,10 @@ final class KeloModel: ObservableObject {
             let merged = reading.merged(into: todayHealth, date: today)
             HealthStore.upsert(merged)
             health = HealthStore.load()
+            // Movement is part of the same body picture — pull it in the same tap.
+            if movementAvailable {
+                movement = try? await motion.syncToday()
+            }
             lastSync = Date()
             statusLine = "Synced today from Apple Health."
         } catch HealthKitError.notAuthorized {

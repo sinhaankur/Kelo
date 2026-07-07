@@ -47,6 +47,9 @@ targets:
           Kelo reads your sleep, resting heart rate and workouts to show how
           your body and your money line up. It only reads Health, never writes
           it, and only after you tap sync.
+        NSMotionUsageDescription: >-
+          Kelo uses motion to tell when you're sitting, standing, walking or
+          running, and to count your steps — so it can nudge you to move.
     entitlements:
       path: iOS/Kelo.entitlements
       properties:
