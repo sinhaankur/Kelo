@@ -1,0 +1,37 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Kelo mark — Health & Wealth in one stroke.
+       A single line reads left-to-right as a heartbeat (the health side) and
+       then lifts into a rising chart with an upward arrow (the wealth side).
+       One continuous gesture = the two halves are the same life.
+       Brand: warm ink ground (#161616), amber-gold stroke (#cf9a2c),
+       matching sinhaankur.com. -->
+  <defs>
+    <linearGradient id="amber" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#b8801f"/>
+      <stop offset="1" stop-color="#e0b24a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded ink tile -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="#161616"/>
+
+  <!-- The one continuous stroke, left→right:
+       flat baseline → heartbeat spike (health) → then a clearly RISING
+       staircase that climbs to the top-right (wealth/growth). One gesture. -->
+  <g fill="none" stroke="url(#amber)" stroke-width="54"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 150 600
+             L 315 600
+             L 372 452
+             L 452 726
+             L 520 600
+             L 600 600
+             L 600 520
+             L 700 520
+             L 700 420
+             L 812 420
+             L 812 300"/>
+    <!-- Up-arrow head at the top of the climb: growth taking off. -->
+    <path d="M 742 366 L 812 296 L 882 366"/>
+  </g>
+</svg>
