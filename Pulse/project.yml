@@ -50,17 +50,17 @@ targets:
     entitlements:
       path: iOS/Kelo.entitlements
       properties:
+        # HealthKit only for the device build. The custom iCloud container is
+        # deferred — a personal/free team can't provision it, and including it
+        # makes the install fail. Sync lands once there's a paid team +
+        # container ([[project_life_app_sync]]).
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
-        com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.sinhaankur.kelo
-        com.apple.developer.icloud-services:
-          - CloudDocuments
-        com.apple.developer.ubiquity-container-identifiers:
-          - iCloud.com.sinhaankur.kelo
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sinhaankur.kelo
+        # Kelo IS Forge's successor — reuse Forge's bundle id so it installs
+        # in place over the old app rather than landing as a duplicate.
+        PRODUCT_BUNDLE_IDENTIFIER: com.sinhaankur.forge
         PRODUCT_NAME: Kelo
         MARKETING_VERSION: "0.27.0"
         CURRENT_PROJECT_VERSION: "1"
@@ -68,4 +68,5 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"   # iPhone + iPad
         SWIFT_VERSION: "5.9"
         CODE_SIGN_STYLE: Automatic
-        # Simulator builds need no team; a device build sets DEVELOPMENT_TEAM.
+        DEVELOPMENT_TEAM: DS8C97S284
+        # Simulator builds need no team; the device build signs with the team above.
