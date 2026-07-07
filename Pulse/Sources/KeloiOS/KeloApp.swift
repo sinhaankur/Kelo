@@ -67,6 +67,17 @@ final class KeloModel: ObservableObject {
         return health.days.first { $0.date == today }
     }
 
+    /// The three rings for today — Body · Money · Discipline — from on-device
+    /// data. The glanceable image of the whole day.
+    var rings: [Ring] {
+        let totals = SpendService.monthTotals(SpendStore.load())
+        let streaks = Discipline.streaks(health: health, mood: MoodStore.load())
+        return Rings.all(movement: movement,
+                         trainedToday: todayHealth?.didTrain ?? false,
+                         spentThisMonth: totals.spent, budgeted: totals.budgeted,
+                         streaks: streaks)
+    }
+
     /// Ask for Health access, then pull today's real signals in — only ever
     /// from an explicit user tap. Kelo reads Health; it never writes it.
     func syncFromHealth() async {

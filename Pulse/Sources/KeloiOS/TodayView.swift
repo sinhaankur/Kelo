@@ -11,6 +11,8 @@ struct TodayView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    RingsSummary(rings: model.rings)
+                        .padding(.top, 4)
                     heroCard
                     if let s = model.statusLine {
                         Label(s, systemImage: "info.circle")

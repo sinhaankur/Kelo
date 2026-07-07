@@ -14,22 +14,27 @@ struct KeloWatchApp: App {
 
 struct WatchTodayView: View {
     @State private var state = Self.currentState()
+    private let rings = Self.currentRings()
 
     var body: some View {
         ScrollView {
             VStack(spacing: 10) {
-                // The day as a ring, Apple-Fitness style — one glanceable arc.
+                // Three rings — Body · Money · Discipline — the same glance as
+                // the phone, wrist-sized.
                 ZStack {
-                    Circle().stroke(Color.white.opacity(0.15), lineWidth: 10)
-                    Circle()
-                        .trim(from: 0, to: ringFill)
-                        .stroke(ringColor, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    Image(systemName: ringIcon)
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(ringColor)
+                    ForEach(Array(rings.enumerated()), id: \.element.id) { i, ring in
+                        let inset = CGFloat(i) * 16
+                        ZStack {
+                            Circle().stroke(ringColor(ring.kind).opacity(0.2), lineWidth: 9)
+                            Circle()
+                                .trim(from: 0, to: max(0.001, ring.fraction))
+                                .stroke(ringColor(ring.kind), style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                        }
+                        .padding(inset)
+                    }
                 }
-                .frame(width: 96, height: 96)
+                .frame(width: 104, height: 104)
                 .padding(.top, 4)
 
                 Text(state.headline)
@@ -48,14 +53,6 @@ struct WatchTodayView: View {
         }
     }
 
-    // A rough "how full is the day" arc from the composite standing.
-    private var ringFill: CGFloat {
-        switch state.standing {
-        case .strong: return 1.0
-        case .steady: return 0.6
-        case .strained: return 0.3
-        }
-    }
     private var ringColor: Color {
         switch state.standing {
         case .strong: return .green
@@ -65,16 +62,18 @@ struct WatchTodayView: View {
         case .strained: return .orange
         }
     }
-    private var ringIcon: String {
-        switch state.standing {
-        case .strong: return "checkmark"
-        case .steady: return "circle.dashed"
-        case .strained: return "exclamationmark"
+
+    private func ringColor(_ kind: Ring.Kind) -> Color {
+        switch kind {
+        case .body:       return Color(.sRGB, red: 0.90, green: 0.30, blue: 0.35, opacity: 1)
+        case .money:      let a = KeloBrand.accent
+                          return Color(.sRGB, red: a.r, green: a.g, blue: a.b, opacity: 1)
+        case .discipline: return Color(.sRGB, red: 0.36, green: 0.66, blue: 0.52, opacity: 1)
         }
     }
 
-    // Build the same DayState the phone/desktop show, from on-device data the
-    // Watch shares via KeloKit.
+    // Build the same DayState + rings the phone/desktop show, from on-device
+    // data the Watch shares via KeloKit.
     private static func currentState() -> DayState {
         let health = HealthStore.load()
         let today = health.days.first { $0.date == isoDateString(Date()) }
@@ -83,5 +82,16 @@ struct WatchTodayView: View {
             restingHRBaseline: health.restingHRBaseline(),
             recentLoad: health.recentLoad(),
             mood: MoodStore.today()?.mood))
+    }
+
+    private static func currentRings() -> [Ring] {
+        let health = HealthStore.load()
+        let today = health.days.first { $0.date == isoDateString(Date()) }
+        let totals = SpendService.monthTotals(SpendStore.load())
+        let streaks = Discipline.streaks(health: health, mood: MoodStore.load())
+        return Rings.all(movement: MovementStore.today(),
+                         trainedToday: today?.didTrain ?? false,
+                         spentThisMonth: totals.spent, budgeted: totals.budgeted,
+                         streaks: streaks)
     }
 }

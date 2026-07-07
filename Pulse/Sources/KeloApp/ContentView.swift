@@ -547,6 +547,7 @@ struct ContentView: View {
                             // Command center, top to bottom: how am I doing,
                             // what should I do, then the supporting picture.
                             // The full world map lives in Market.
+                            RingsCard(model: model)      // the day as three rings
                             DayStateCard(model: model)   // Kelo's hero: body + money, today
                             BodyCard(model: model)       // movement · training · DNA
                             LeakCard(model: model)       // "am I bleeding money?" — biggest leaks
