@@ -60,3 +60,15 @@ PY
 echo
 echo "Done. Review the checkpoint log above, then check `git -C \"$PROJECT\" diff` and"
 echo "commit or revert as you like. Anita never commits or pushes on her own."
+
+# Opt-in push notification when the drive finishes — so you know while away.
+# Set NTFY_TOPIC (and optionally NTFY_SERVER for a private instance) to enable;
+# unset = no notification. Only the goal text is sent — no code, no data.
+if [[ -n "${NTFY_TOPIC:-}" ]]; then
+  curl -s \
+    -H "Title: Anita finished a drive" \
+    -H "Tags: white_check_mark" \
+    -d "Kelo: $GOAL" \
+    "${NTFY_SERVER:-https://ntfy.sh}/${NTFY_TOPIC}" >/dev/null 2>&1 \
+    && echo "(pushed a notification to your ntfy topic)"
+fi
