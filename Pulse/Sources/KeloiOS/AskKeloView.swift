@@ -38,27 +38,28 @@ final class AskKeloModel: ObservableObject {
         let endpoint = cfg.llmEndpoint ?? "http://localhost:11434"
         let model = cfg.llmModel ?? "qwen2.5:7b"
         let cloud = cfg.usesAnthropicCloud
-        usedCloud = cloud
 
         Task {
-            // Decide the LLM closure: a real routed call if a provider is set up,
-            // otherwise nil → AssistantService answers deterministically.
+            // Prefer the most private engine that works: Apple on-device (unless
+            // the user opted into cloud) → Ollama if reachable → deterministic
+            // local answer. `usedCloud` is set from the ACTUAL backend, honestly.
+            // Hoist the async ping out of the boolean (autoclosures can't await).
+            let ollamaUp = await LlmService.ping(endpoint: endpoint)
             let llm: ((String, String) async throws -> String)?
-            if cloud {
+            var reportCloud = false
+            if cloud || AppleFoundationModel.isAvailable || ollamaUp {
+                reportCloud = cloud
                 llm = { sys, usr in
-                    try await LlmService.analyzeRouted(system: sys, user: usr, config: cfg,
-                                                       ollamaEndpoint: endpoint, ollamaModel: model)
-                }
-            } else if await LlmService.ping(endpoint: endpoint) {
-                llm = { sys, usr in
-                    try await LlmService.analyze(system: sys, user: usr, endpoint: endpoint, model: model)
+                    let r = try await LlmService.routed(system: sys, user: usr, config: cfg,
+                                                        ollamaEndpoint: endpoint, ollamaModel: model)
+                    return r.text
                 }
             } else {
-                llm = nil   // no model reachable → honest local answer
+                llm = nil   // no model available → honest local answer
             }
 
             let result = await AssistantService.answer(question: query, snapshot: snap,
-                                                       llm: llm, usedCloud: cloud)
+                                                       llm: llm, usedCloud: reportCloud)
             await MainActor.run {
                 self.answer = result.text
                 self.source = result.source
@@ -71,14 +72,25 @@ final class AskKeloModel: ObservableObject {
 
 struct AskKeloView: View {
     @StateObject private var vm = AskKeloModel()
+    // Off by default — the assistant is strictly opt-in. Persists across launches.
+    @AppStorage("assistantEnabled") private var enabled = false
 
     var body: some View {
         sectionCard("Ask Kelo") {
+          if !enabled {
+            enablePrompt
+          } else {
           VStack(alignment: .leading, spacing: 14) {
-            Text("Ask about your day. Kelo answers from your own numbers — nothing leaves this device unless you've turned on a cloud model.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top) {
+                Text("Ask about your day. Kelo answers from your own numbers — nothing leaves this device unless you've turned on a cloud model.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Toggle("", isOn: $enabled).labelsHidden().tint(.keloAccent)
+            }
+
+            engineLabel
 
             // Suggestion chips — one tap to a grounded answer.
             ScrollView(.horizontal, showsIndicators: false) {
@@ -132,7 +144,39 @@ struct AskKeloView: View {
           }
           .animation(.easeInOut(duration: 0.2), value: vm.answer)
           .animation(.easeInOut(duration: 0.2), value: vm.running)
+          }
         }
+    }
+
+    /// The opt-in gate shown when the assistant is off. Explicit, honest,
+    /// off by default — nothing runs until you turn it on.
+    private var enablePrompt: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("An opt-in assistant that reads your own Kelo data — day, movement, spending, savings — to answer “how am I doing?”. It never acts, and stays on your device unless you enable a cloud model.")
+                .font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                enabled = true
+            } label: {
+                Label("Turn on Ask Kelo", systemImage: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).tint(.keloAccent)
+        }
+    }
+
+    /// Which engine will answer — set once when the view appears.
+    @ViewBuilder private var engineLabel: some View {
+        let (icon, text): (String, String) = {
+            if AppleFoundationModel.isAvailable {
+                return ("apple.logo", "On-device Apple Intelligence")
+            }
+            return ("lock.laptopcomputer", "Answers from your data · local model if running")
+        }()
+        Label(text, systemImage: icon)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.secondary)
     }
 
     /// Honest provenance — where the answer came from, and whether it left the device.

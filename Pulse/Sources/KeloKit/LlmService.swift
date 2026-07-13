@@ -88,16 +88,39 @@ public enum LlmService {
         return (resp as? HTTPURLResponse)?.statusCode == 200
     }
 
-    /// Route by config: Ollama by default (on-device), Anthropic only when
-    /// explicitly configured.
+    /// Which model actually answered — so the UI can be honest about it.
+    public enum Backend: String { case appleOnDevice, ollama, anthropicCloud }
+
+    /// Route by config, preferring the MOST PRIVATE option that works:
+    ///   1. Apple's on-device Foundation Model (nothing leaves the device) —
+    ///      unless the user has explicitly opted into the cloud provider.
+    ///   2. Ollama on localhost (on-device, user-run).
+    ///   3. Anthropic cloud — only when explicitly configured.
+    /// Returns the reply AND which backend produced it.
+    public static func routed(system: String, user: String, config: AppConfig,
+                              ollamaEndpoint: String, ollamaModel: String) async throws -> (text: String, backend: Backend) {
+        // Explicit cloud opt-in wins (the user chose it), and is clearly flagged.
+        if config.usesAnthropicCloud {
+            let t = try await analyzeAnthropic(system: system, user: user,
+                                               apiKey: config.anthropicApiKey ?? "",
+                                               model: config.llmModel ?? "claude-sonnet-4-6")
+            return (t, .anthropicCloud)
+        }
+        // Otherwise prefer Apple's on-device model when it can run.
+        if AppleFoundationModel.isAvailable {
+            let t = try await AppleFoundationModel.analyze(system: system, user: user)
+            return (t, .appleOnDevice)
+        }
+        // Fall back to Ollama.
+        let t = try await analyze(system: system, user: user,
+                                  endpoint: ollamaEndpoint, model: ollamaModel)
+        return (t, .ollama)
+    }
+
+    /// Back-compat text-only wrapper.
     public static func analyzeRouted(system: String, user: String, config: AppConfig,
                                      ollamaEndpoint: String, ollamaModel: String) async throws -> String {
-        if config.usesAnthropicCloud {
-            return try await analyzeAnthropic(system: system, user: user,
-                                              apiKey: config.anthropicApiKey ?? "",
-                                              model: config.llmModel ?? "claude-sonnet-4-6")
-        }
-        return try await analyze(system: system, user: user,
-                                 endpoint: ollamaEndpoint, model: ollamaModel)
+        try await routed(system: system, user: user, config: config,
+                         ollamaEndpoint: ollamaEndpoint, ollamaModel: ollamaModel).text
     }
 }

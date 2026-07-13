@@ -73,15 +73,15 @@ final class AskKeloCardModel: ObservableObject {
         usedCloud = cloud
 
         Task {
+            // Prefer the most private engine that works: Apple on-device (unless
+            // the user opted into cloud) → Ollama if reachable → local answer.
+            // Hoist the async ping out of the boolean (autoclosures can't await).
+            let ollamaUp = await LlmService.ping(endpoint: endpoint)
             let llm: ((String, String) async throws -> String)?
-            if cloud {
+            if cloud || AppleFoundationModel.isAvailable || ollamaUp {
                 llm = { sys, usr in
-                    try await LlmService.analyzeRouted(system: sys, user: usr, config: cfg,
-                                                       ollamaEndpoint: endpoint, ollamaModel: modelName)
-                }
-            } else if await LlmService.ping(endpoint: endpoint) {
-                llm = { sys, usr in
-                    try await LlmService.analyze(system: sys, user: usr, endpoint: endpoint, model: modelName)
+                    try await LlmService.routed(system: sys, user: usr, config: cfg,
+                                                ollamaEndpoint: endpoint, ollamaModel: modelName).text
                 }
             } else {
                 llm = nil
@@ -101,10 +101,28 @@ final class AskKeloCardModel: ObservableObject {
 struct AskKeloCard: View {
     @ObservedObject var model: AppModel
     @StateObject private var vm = AskKeloCardModel()
+    // Off by default — strictly opt-in, persisted.
+    @AppStorage("assistantEnabled") private var enabled = false
 
     var body: some View {
-        Card(title: "ASK KELO", trailing: "how am I doing? · from your own data") {
+        Card(title: "ASK KELO", trailing: enabled ? "how am I doing? · from your own data" : "opt-in") {
+            if !enabled {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("An opt-in assistant that reads your own Kelo data — day, movement, spending, savings, portfolio — to answer “how am I doing?”. It never acts, and stays on this Mac unless you enable a cloud model.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button { enabled = true } label: {
+                        Label("Turn on Ask Kelo", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            } else {
             VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    engineLabel
+                    Spacer()
+                    Toggle("", isOn: $enabled).labelsHidden().controlSize(.mini)
+                }
                 // Suggestions
                 HStack(spacing: 8) {
                     ForEach(vm.suggestions, id: \.self) { s in
@@ -145,7 +163,16 @@ struct AskKeloCard: View {
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.06)))
                 }
             }
+            }
         }
+    }
+
+    /// Which engine will answer.
+    @ViewBuilder private var engineLabel: some View {
+        let (icon, text): (String, String) = AppleFoundationModel.isAvailable
+            ? ("apple.logo", "On-device Apple Intelligence")
+            : ("lock.laptopcomputer", "From your data · local model if running")
+        Label(text, systemImage: icon).font(.system(size: 10)).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private var sourceLabel: some View {
