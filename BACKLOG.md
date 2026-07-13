@@ -11,11 +11,10 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 
 ## Now
 
-- [ ] **Assistant: settings toggle + Apple Foundation Models** — the assistant
-      ships (AssistantService + Ask Kelo on iOS/macOS, grounded + honest + 14
-      tests). Remaining: an explicit on/off toggle in settings (currently gated
-      by whether a model is reachable), and prefer on-device Apple Foundation
-      Models over Ollama where available.
+- [ ] **Assistant: follow-up conversation + memory** — the assistant answers
+      single questions well; next is a short back-and-forth (keep the last few
+      turns as context) and remembering a couple of user notes/theses (the
+      OpenAlice "tracked entities" idea), still on-device + opt-in.
 
 ## Next
 
@@ -41,6 +40,8 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 
 ## Done
 
+- [x] Assistant opt-in toggle (off by default) + on-device Apple Foundation
+      Models preferred (guarded for iOS17/macOS13); routed: cloud→Apple→Ollama→local.
 - [x] Opt-in assistant CORE + Ask Kelo UI (iOS Today tab + macOS card):
       grounded in real data, honest source labels, works with zero AI, 14 tests.
 
