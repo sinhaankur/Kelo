@@ -39,12 +39,25 @@ public enum AssistantService {
         public var portfolioValue: Double?
         public var portfolioDayChangePct: Double?
         public var topHoldings: [String] = []    // e.g. ["AAPL +2.1%", "MSFT −0.4%"]
+        /// User-authored notes / theses (the OpenAlice "tracked entities" idea) —
+        /// short lines the person wrote themselves ("cutting dining", "bullish on
+        /// AAPL"). The assistant reads them as context, never as fact it invented.
+        public var notes: [String] = []
         public var currency: String
 
         public init(currency: String = "USD") { self.currency = currency }
     }
 
     public enum Source: String { case model, localData }
+
+    /// One prior exchange, for follow-up questions ("and my spending?"). Kept
+    /// small — only the last few turns are carried so context stays cheap.
+    public struct Turn {
+        public enum Role: String { case user, assistant }
+        public let role: Role
+        public let text: String
+        public init(role: Role, text: String) { self.role = role; self.text = text }
+    }
 
     public struct Answer {
         public let text: String
@@ -99,6 +112,12 @@ public enum AssistantService {
         }
         if !s.topHoldings.isEmpty {
             lines.append("Holdings: \(s.topHoldings.joined(separator: ", ")).")
+        }
+
+        // User-authored notes — clearly framed as THEIR words, not facts.
+        if !s.notes.isEmpty {
+            lines.append("Your notes (things you told me):")
+            for n in s.notes { lines.append("  – \(n)") }
         }
 
         return lines.isEmpty
@@ -169,12 +188,19 @@ public enum AssistantService {
     numbers show and what would move them. Refer to the person as "you".
     """
 
+    /// The number of prior turns carried into a follow-up (keeps context cheap).
+    public static let historyWindow = 6
+
     /// Answer a question. If `llm` is provided it's called for real; otherwise
     /// (or on any error) the deterministic local summary is returned. The
     /// caller decides whether a model is configured — Kelo works with none.
+    ///
+    /// `history` carries prior turns so follow-ups ("and my spending?") have
+    /// context. Only the last `historyWindow` turns are used.
     public static func answer(
         question: String,
         snapshot: Snapshot,
+        history: [Turn] = [],
         llm: ((_ system: String, _ user: String) async throws -> String)? = nil,
         usedCloud: Bool = false
     ) async -> Answer {
@@ -182,12 +208,22 @@ public enum AssistantService {
         guard let llm else {
             return Answer(text: localSummary(snapshot), source: .localData, usedCloud: false)
         }
+        // Fold the recent conversation into the prompt so the model can resolve
+        // "and that?" against what was just discussed. The data brief is always
+        // re-stated so answers stay grounded in the CURRENT numbers.
+        var convo = ""
+        let recent = history.suffix(historyWindow)
+        if !recent.isEmpty {
+            convo = "Our conversation so far:\n"
+                + recent.map { "\($0.role == .user ? "You" : "Me"): \($0.text)" }.joined(separator: "\n")
+                + "\n\n"
+        }
         let user = """
         Here is my current data:
 
         \(brief)
 
-        My question: \(question.isEmpty ? "How am I doing?" : question)
+        \(convo)My question: \(question.isEmpty ? "How am I doing?" : question)
         """
         do {
             let reply = try await llm(systemPrompt, user)

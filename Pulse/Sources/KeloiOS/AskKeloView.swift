@@ -7,10 +7,16 @@ import KeloKit
 /// directly. Honest about which happened and whether anything left the device.
 @MainActor
 final class AskKeloModel: ObservableObject {
+    struct Message: Identifiable {
+        let id = UUID()
+        let role: AssistantService.Turn.Role
+        let text: String
+        var source: AssistantService.Source? = nil
+        var usedCloud = false
+    }
+
     @Published var question = ""
-    @Published var answer: String = ""
-    @Published var source: AssistantService.Source? = nil
-    @Published var usedCloud = false
+    @Published var transcript: [Message] = []
     @Published var running = false
     @Published var suggestions = [
         "How am I doing?",
@@ -27,12 +33,16 @@ final class AskKeloModel: ObservableObject {
         return .fromStores(currency: cfg.displayCurrency ?? "USD")
     }
 
+    func clear() { transcript = [] }
+
     func ask(_ q: String? = nil) {
         let query = (q ?? question).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !running else { return }
+        guard !running, !query.isEmpty else { return }
         running = true
-        answer = ""
-        source = nil
+        question = ""
+        // Prior turns become the follow-up context BEFORE we append this one.
+        let history = transcript.map { AssistantService.Turn(role: $0.role, text: $0.text) }
+        transcript.append(Message(role: .user, text: query))
         let snap = snapshot()
         let cfg = AppConfig.load()
         let endpoint = cfg.llmEndpoint ?? "http://localhost:11434"
@@ -41,8 +51,7 @@ final class AskKeloModel: ObservableObject {
 
         Task {
             // Prefer the most private engine that works: Apple on-device (unless
-            // the user opted into cloud) → Ollama if reachable → deterministic
-            // local answer. `usedCloud` is set from the ACTUAL backend, honestly.
+            // the user opted into cloud) → Ollama if reachable → local answer.
             // Hoist the async ping out of the boolean (autoclosures can't await).
             let ollamaUp = await LlmService.ping(endpoint: endpoint)
             let llm: ((String, String) async throws -> String)?
@@ -50,20 +59,18 @@ final class AskKeloModel: ObservableObject {
             if cloud || AppleFoundationModel.isAvailable || ollamaUp {
                 reportCloud = cloud
                 llm = { sys, usr in
-                    let r = try await LlmService.routed(system: sys, user: usr, config: cfg,
-                                                        ollamaEndpoint: endpoint, ollamaModel: model)
-                    return r.text
+                    try await LlmService.routed(system: sys, user: usr, config: cfg,
+                                                ollamaEndpoint: endpoint, ollamaModel: model).text
                 }
             } else {
                 llm = nil   // no model available → honest local answer
             }
 
             let result = await AssistantService.answer(question: query, snapshot: snap,
-                                                       llm: llm, usedCloud: reportCloud)
+                                                       history: history, llm: llm, usedCloud: reportCloud)
             await MainActor.run {
-                self.answer = result.text
-                self.source = result.source
-                self.usedCloud = result.usedCloud
+                self.transcript.append(Message(role: .assistant, text: result.text,
+                                               source: result.source, usedCloud: result.usedCloud))
                 self.running = false
             }
         }
@@ -90,27 +97,49 @@ struct AskKeloView: View {
                 Toggle("", isOn: $enabled).labelsHidden().tint(.keloAccent)
             }
 
-            engineLabel
+            HStack {
+                engineLabel
+                Spacer()
+                if !vm.transcript.isEmpty {
+                    Button("Clear") { vm.clear() }
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
 
-            // Suggestion chips — one tap to a grounded answer.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(vm.suggestions, id: \.self) { s in
-                        Button { vm.ask(s) } label: {
-                            Text(s)
-                                .font(.system(size: 12, weight: .medium))
-                                .padding(.horizontal, 12).padding(.vertical, 7)
-                                .background(Color.keloAccent.opacity(0.12), in: Capsule())
-                                .foregroundStyle(Color.keloAccent)
+            // Suggestion chips — shown to start the conversation.
+            if vm.transcript.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(vm.suggestions, id: \.self) { s in
+                            Button { vm.ask(s) } label: {
+                                Text(s)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .padding(.horizontal, 12).padding(.vertical, 7)
+                                    .background(Color.keloAccent.opacity(0.12), in: Capsule())
+                                    .foregroundStyle(Color.keloAccent)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
 
-            // Free-text ask.
+            // Transcript — the running conversation.
+            ForEach(vm.transcript) { m in
+                messageBubble(m)
+            }
+
+            if vm.running {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading your day…").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+
+            // Free-text ask — a follow-up continues the thread.
             HStack(spacing: 8) {
-                TextField("Ask anything about your day…", text: $vm.question)
+                TextField(vm.transcript.isEmpty ? "Ask anything about your day…" : "Ask a follow-up…",
+                          text: $vm.question)
                     .textFieldStyle(.roundedBorder)
                     .submitLabel(.send)
                     .onSubmit { vm.ask() }
@@ -122,29 +151,32 @@ struct AskKeloView: View {
                 .disabled(vm.question.isEmpty || vm.running)
             }
 
-            if vm.running {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Reading your day…").font(.footnote).foregroundStyle(.secondary)
-                }
-            }
-
-            if !vm.answer.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(vm.answer)
-                        .font(.callout)
-                        .foregroundStyle(Color.keloInk)
-                        .fixedSize(horizontal: false, vertical: true)
-                    sourceLabel
-                }
-                .padding(12)
-                .background(Color.keloAccent.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-                .transition(.opacity)
-            }
+            // Notes — the couple of things you've told Kelo to remember.
+            AssistantNotesInline()
           }
-          .animation(.easeInOut(duration: 0.2), value: vm.answer)
+          .animation(.easeInOut(duration: 0.2), value: vm.transcript.count)
           .animation(.easeInOut(duration: 0.2), value: vm.running)
           }
+        }
+    }
+
+    /// One message in the transcript — your question or Kelo's grounded reply.
+    @ViewBuilder private func messageBubble(_ m: AskKeloModel.Message) -> some View {
+        if m.role == .user {
+            Text(m.text)
+                .font(.callout).foregroundStyle(Color.keloInk)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(Color.keloInk.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(m.text).font(.callout).foregroundStyle(Color.keloInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                sourceLabel(m.source, m.usedCloud)
+            }
+            .padding(12)
+            .background(Color.keloAccent.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -179,16 +211,16 @@ struct AskKeloView: View {
             .foregroundStyle(.secondary)
     }
 
-    /// Honest provenance — where the answer came from, and whether it left the device.
-    @ViewBuilder private var sourceLabel: some View {
-        switch vm.source {
+    /// Honest provenance — where an answer came from, and whether it left the device.
+    @ViewBuilder private func sourceLabel(_ source: AssistantService.Source?, _ usedCloud: Bool) -> some View {
+        switch source {
         case .model:
-            Label(vm.usedCloud
+            Label(usedCloud
                   ? "Interpreted by a cloud model — this data left your device"
                   : "Interpreted by your on-device model",
-                  systemImage: vm.usedCloud ? "cloud" : "lock.laptopcomputer")
+                  systemImage: usedCloud ? "cloud" : "lock.laptopcomputer")
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(vm.usedCloud ? Color.orange : .secondary)
+                .foregroundStyle(usedCloud ? Color.orange : .secondary)
         case .localData:
             Label("Answered from your data — no model, fully on device",
                   systemImage: "lock.fill")
@@ -197,5 +229,51 @@ struct AskKeloView: View {
         case .none:
             EmptyView()
         }
+    }
+}
+
+/// A compact notes editor inline in the Ask Kelo card — add/remove the couple
+/// of things you want Kelo to remember. Persisted on device via NoteStore.
+struct AssistantNotesInline: View {
+    @State private var notes: [AssistantNote] = NoteStore.load()
+    @State private var draft = ""
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button { expanded.toggle() } label: {
+                Label(expanded ? "Notes Kelo remembers" : "Notes Kelo remembers (\(notes.count))",
+                      systemImage: expanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                ForEach(notes) { n in
+                    HStack(spacing: 8) {
+                        Text("• \(n.text)").font(.footnote).foregroundStyle(Color.keloInk)
+                        Spacer()
+                        Button { notes = NoteStore.remove(id: n.id) } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }.buttonStyle(.plain)
+                    }
+                }
+                HStack(spacing: 8) {
+                    TextField("Remember something… (e.g. cutting dining out)", text: $draft)
+                        .textFieldStyle(.roundedBorder).font(.footnote)
+                        .onSubmit(add)
+                    Button(action: add) { Image(systemName: "plus.circle.fill") }
+                        .buttonStyle(.plain).foregroundStyle(Color.keloAccent)
+                        .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func add() {
+        let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        notes = NoteStore.add(t)
+        draft = ""
     }
 }

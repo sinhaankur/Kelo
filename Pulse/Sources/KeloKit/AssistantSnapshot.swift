@@ -18,6 +18,7 @@ extension AssistantService.Snapshot {
         spend: SpendData = SpendStore.load(),
         moodEntry: MoodEntry? = MoodStore.today(),
         profile: Profile = ProfileStore.load(),
+        notes: [String] = NoteStore.contextLines(),
         currency: String = "USD",
         // App-layer extras (need live quotes) — optional.
         portfolioValue: Double? = nil,
@@ -26,6 +27,7 @@ extension AssistantService.Snapshot {
         topHoldings: [String] = []
     ) -> AssistantService.Snapshot {
         var s = AssistantService.Snapshot(currency: currency)
+        s.notes = notes
 
         // ── Rings (the same real calls the dashboard makes) ──────────────
         let totals = SpendService.monthTotals(spend)
