@@ -26,16 +26,25 @@ final class AskKeloModel: ObservableObject {
     ]
 
     /// Build the live snapshot from the on-device stores. Portfolio value needs
-    /// live quotes (not on the phone yet), so it's omitted — the assistant just
-    /// won't mention it, which is the honest behaviour.
-    private func snapshot() -> AssistantService.Snapshot {
+    /// live quotes when the phone has fetched them (KeloModel.refreshQuotes),
+    /// otherwise the portfolio is honestly omitted.
+    private func snapshot(_ model: KeloModel) -> AssistantService.Snapshot {
         let cfg = AppConfig.load()
-        return .fromStores(currency: cfg.displayCurrency ?? "USD")
+        let cur = cfg.displayCurrency ?? "USD"
+        let total = PortfolioValuation.totalValue(model.portfolio, quotes: model.quotes, fxRates: model.fxRates)
+        let hasQuotes = total > 0
+        return .fromStores(
+            currency: cur,
+            portfolioValue: hasQuotes ? total : nil,
+            portfolioDayChangePct: PortfolioValuation.dayChangePct(model.portfolio, quotes: model.quotes, fxRates: model.fxRates),
+            currentSaved: hasQuotes ? total : nil,
+            topHoldings: hasQuotes ? PortfolioValuation.topHoldings(model.portfolio, quotes: model.quotes, fxRates: model.fxRates) : []
+        )
     }
 
     func clear() { transcript = [] }
 
-    func ask(_ q: String? = nil) {
+    func ask(_ model: KeloModel, _ q: String? = nil) {
         let query = (q ?? question).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !running, !query.isEmpty else { return }
         running = true
@@ -43,10 +52,10 @@ final class AskKeloModel: ObservableObject {
         // Prior turns become the follow-up context BEFORE we append this one.
         let history = transcript.map { AssistantService.Turn(role: $0.role, text: $0.text) }
         transcript.append(Message(role: .user, text: query))
-        let snap = snapshot()
+        let snap = snapshot(model)
         let cfg = AppConfig.load()
         let endpoint = cfg.llmEndpoint ?? "http://localhost:11434"
-        let model = cfg.llmModel ?? "qwen2.5:7b"
+        let modelName = cfg.llmModel ?? "qwen2.5:7b"
         let cloud = cfg.usesAnthropicCloud
 
         Task {
@@ -60,7 +69,7 @@ final class AskKeloModel: ObservableObject {
                 reportCloud = cloud
                 llm = { sys, usr in
                     try await LlmService.routed(system: sys, user: usr, config: cfg,
-                                                ollamaEndpoint: endpoint, ollamaModel: model).text
+                                                ollamaEndpoint: endpoint, ollamaModel: modelName).text
                 }
             } else {
                 llm = nil   // no model available → honest local answer
@@ -78,6 +87,7 @@ final class AskKeloModel: ObservableObject {
 }
 
 struct AskKeloView: View {
+    @ObservedObject var model: KeloModel
     @StateObject private var vm = AskKeloModel()
     // Off by default — the assistant is strictly opt-in. Persists across launches.
     @AppStorage("assistantEnabled") private var enabled = false
@@ -111,7 +121,7 @@ struct AskKeloView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(vm.suggestions, id: \.self) { s in
-                            Button { vm.ask(s) } label: {
+                            Button { vm.ask(model, s) } label: {
                                 Text(s)
                                     .font(.system(size: 12, weight: .medium))
                                     .padding(.horizontal, 12).padding(.vertical, 7)
@@ -142,8 +152,8 @@ struct AskKeloView: View {
                           text: $vm.question)
                     .textFieldStyle(.roundedBorder)
                     .submitLabel(.send)
-                    .onSubmit { vm.ask() }
-                Button { vm.ask() } label: {
+                    .onSubmit { vm.ask(model) }
+                Button { vm.ask(model) } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 26))
                         .foregroundStyle(vm.question.isEmpty ? Color.secondary : Color.keloAccent)
@@ -157,6 +167,12 @@ struct AskKeloView: View {
           .animation(.easeInOut(duration: 0.2), value: vm.transcript.count)
           .animation(.easeInOut(duration: 0.2), value: vm.running)
           }
+        }
+        // Fetch quotes once the assistant is on + there are holdings, so the
+        // phone can ground in the portfolio like the Mac. Symbols only leave
+        // the device (public market data) — never positions.
+        .task(id: enabled) {
+            if enabled && model.quotes.isEmpty { await model.refreshQuotes() }
         }
     }
 

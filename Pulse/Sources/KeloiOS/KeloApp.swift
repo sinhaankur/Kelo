@@ -31,9 +31,30 @@ final class KeloModel: ObservableObject {
     @Published var syncing = false
     @Published var healthAuthorized = false
     @Published var statusLine: String?
+    /// Live quotes + FX so the phone can value the portfolio like the Mac does
+    /// (the assistant grounds in this when present).
+    @Published var quotes: [String: Quote] = [:]
+    @Published var fxRates: [String: Double] = [:]
 
     private let reader = HealthKitReader()
     private let motion = MovementService()
+
+    /// Fetch quotes + FX for the current holdings. Only runs when there are
+    /// holdings, hits the same public market data the Mac uses, and never sends
+    /// the user's positions anywhere (symbols only).
+    func refreshQuotes() async {
+        let holdings = portfolio.holdings
+        guard !holdings.isEmpty else { return }
+        let symbols = Array(Set(holdings.map(\.symbol)))
+        let q = await QuoteService.fetchAll(symbols: symbols)
+        let currencies = Set(q.values.map(\.currency))
+        let display = AppConfig.load().displayCurrency ?? "USD"
+        let fx = await QuoteService.fxRates(for: currencies, display: display)
+        await MainActor.run {
+            self.quotes = q
+            self.fxRates = fx
+        }
+    }
 
     var healthKitAvailable: Bool { HealthKitReader.isAvailable }
     var movementAvailable: Bool { MovementService.isAvailable }
@@ -54,11 +75,12 @@ final class KeloModel: ObservableObject {
         let spendFraction = card.budgeted > 0 ? card.spent / card.budgeted : nil
         let today = isoDateString(Date())
         let todayHealth = health.days.first { $0.date == today }
+        let dayPct = PortfolioValuation.dayChangePct(portfolio, quotes: quotes, fxRates: fxRates)
         return DayState(.init(
             today: todayHealth,
             restingHRBaseline: health.restingHRBaseline(),
             recentLoad: health.recentLoad(),
-            portfolioDayFraction: nil,      // wired once quote sync lands
+            portfolioDayFraction: dayPct.map { $0 / 100 },   // now that quotes sync
             spendVsBudget: spendFraction))
     }
 
