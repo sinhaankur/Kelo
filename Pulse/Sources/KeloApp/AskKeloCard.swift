@@ -67,25 +67,34 @@ final class AskKeloCardModel: ObservableObject {
             // the user opted into cloud) → Ollama if reachable → local answer.
             // Hoist the async ping out of the boolean (autoclosures can't await).
             let ollamaUp = await LlmService.ping(endpoint: endpoint)
+            // Capture the ACTUAL backend so the label reflects reality.
+            let backend = BackendBox()
             let llm: ((String, String) async throws -> String)?
             if cloud || AppleFoundationModel.isAvailable || ollamaUp {
                 llm = { sys, usr in
-                    try await LlmService.routed(system: sys, user: usr, config: cfg,
-                                                ollamaEndpoint: endpoint, ollamaModel: modelName).text
+                    let r = try await LlmService.routed(system: sys, user: usr, config: cfg,
+                                                        ollamaEndpoint: endpoint, ollamaModel: modelName)
+                    backend.value = r.backend
+                    return r.text
                 }
             } else {
                 llm = nil
             }
             let result = await AssistantService.answer(question: query, snapshot: snap,
-                                                       history: history, llm: llm, usedCloud: cloud)
+                                                       history: history, llm: llm)
+            let leftDevice = backend.value == .anthropicCloud
             await MainActor.run {
                 self.transcript.append(Message(role: .assistant, text: result.text,
-                                               source: result.source, usedCloud: result.usedCloud))
+                                               source: result.source,
+                                               usedCloud: result.source == .model && leftDevice))
                 self.running = false
             }
         }
     }
 }
+
+/// A tiny box so the routing closure can report which backend actually answered.
+private final class BackendBox: @unchecked Sendable { var value: LlmService.Backend? = nil }
 
 struct AskKeloCard: View {
     @ObservedObject var model: AppModel
