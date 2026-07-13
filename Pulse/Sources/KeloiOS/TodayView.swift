@@ -30,6 +30,7 @@ struct TodayView: View {
                             .transition(.opacity)
                     }
                     signalSummary
+                    AskKeloView()
                 }
                 .padding(16)
             }

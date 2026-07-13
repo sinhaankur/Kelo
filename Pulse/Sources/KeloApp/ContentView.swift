@@ -549,6 +549,7 @@ struct ContentView: View {
                             // The full world map lives in Market.
                             RingsCard(model: model)      // the day as three rings
                             DayStateCard(model: model)   // Kelo's hero: body + money, today
+                            AskKeloCard(model: model)    // opt-in assistant: "how am I doing?" from your data
                             BodyCard(model: model)       // movement · training · DNA
                             LeakCard(model: model)       // "am I bleeding money?" — biggest leaks
                             BenchmarkCard(model: model)  // "where should I be?" — savings benchmark
