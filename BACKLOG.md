@@ -11,10 +11,9 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 
 ## Now
 
-- [ ] **Assistant: follow-up conversation + memory** — the assistant answers
-      single questions well; next is a short back-and-forth (keep the last few
-      turns as context) and remembering a couple of user notes/theses (the
-      OpenAlice "tracked entities" idea), still on-device + opt-in.
+- [ ] **Wire the portfolio into the phone assistant** — iOS Ask Kelo omits the
+      portfolio (no live quotes on the phone yet). Fetch quotes on iOS so the
+      phone assistant can ground in holdings like the Mac does.
 
 ## Next
 
@@ -40,6 +39,8 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 
 ## Done
 
+- [x] Assistant follow-up conversation (history-aware) + remembered user notes
+      (on-device NoteStore, OpenAlice tracked-entities idea); transcript UI both OSes.
 - [x] Assistant opt-in toggle (off by default) + on-device Apple Foundation
       Models preferred (guarded for iOS17/macOS13); routed: cloud→Apple→Ollama→local.
 - [x] Opt-in assistant CORE + Ask Kelo UI (iOS Today tab + macOS card):
