@@ -127,51 +127,78 @@ public enum AssistantService {
 
     // MARK: - Deterministic answer (zero-AI path)
 
-    /// A real, plain-language answer built ONLY from the snapshot — no model.
-    /// This is what makes the feature honest: with nothing running, it still
-    /// tells you where you stand, using your actual numbers.
-    public static func localSummary(_ s: Snapshot) -> String {
-        var parts: [String] = []
-
+    /// Per-domain sentences from the snapshot — the building blocks the
+    /// deterministic answers are assembled from. Each returns [] when unknown.
+    private static func standingPart(_ s: Snapshot) -> [String] {
         switch s.dayStanding {
-        case "strong": parts.append("You're having a strong day.")
-        case "strained": parts.append("Today's a strained one — go easier on yourself.")
-        case "steady": parts.append("You're steady today.")
-        default: break
+        case "strong": return ["You're having a strong day."]
+        case "strained": return ["Today's a strained one — go easier on yourself."]
+        case "steady": return ["You're steady today."]
+        default: return []
         }
+    }
+    private static func bodyPart(_ s: Snapshot) -> [String] {
+        guard let bf = s.bodyRingFraction else { return [] }
+        if bf >= 1 { return ["Your body ring is closed — movement's handled."] }
+        if bf >= 0.5 { return ["You're partway on movement; a walk would close the body ring."] }
+        if bf > 0 { return ["Movement is light so far today."] }
+        return []
+    }
+    private static func budgetPart(_ s: Snapshot) -> [String] {
+        guard let spent = s.spentThisMonth, let bud = s.budgetedThisMonth, bud > 0 else { return [] }
+        return spent > bud
+            ? ["You're over budget this month by \(money(spent - bud, s.currency))."]
+            : ["Spending's under control — \(money(bud - spent, s.currency)) left in the budget."]
+    }
+    private static func savingsPart(_ s: Snapshot) -> [String] {
+        guard let frac = s.savingsFractionOfTarget else { return [] }
+        let p = Int((frac * 100).rounded())
+        if frac >= 0.9 { return ["Your savings are on track — about \(p)% of your target."] }
+        if frac >= 0.5 { return ["You're about \(p)% of the way to your nest-egg target — keep adding."] }
+        return ["Savings are early — \(p)% of your target; the gap is the thing to chip at."]
+    }
+    private static func portfolioPart(_ s: Snapshot) -> [String] {
+        guard let val = s.portfolioValue else { return [] }
+        let day = s.portfolioDayChangePct.map { " (\(signedPct($0)) today)" } ?? ""
+        var out = ["Your portfolio is worth \(money(val, s.currency))\(day)."]
+        if !s.topHoldings.isEmpty { out.append("Biggest positions: \(s.topHoldings.joined(separator: ", ")).") }
+        return out
+    }
+    private static func disciplinePart(_ s: Snapshot) -> [String] {
+        guard let df = s.disciplineRingFraction else { return [] }
+        if df >= 1 { return ["Every habit's met today — discipline ring closed."] }
+        if df > 0 { return ["Some habits done, some open — the discipline ring isn't closed yet."] }
+        return []
+    }
 
-        // Body
-        if let bf = s.bodyRingFraction {
-            if bf >= 1 { parts.append("Your body ring is closed — movement's handled.") }
-            else if bf >= 0.5 { parts.append("You're partway on movement; a walk would close the body ring.") }
-            else if bf > 0 { parts.append("Movement is light so far today.") }
-        }
-
-        // Money — spending + savings, the two honest wealth signals.
-        if let spent = s.spentThisMonth, let bud = s.budgetedThisMonth, bud > 0 {
-            if spent > bud {
-                parts.append("You're over budget this month by \(money(spent - bud, s.currency)).")
-            } else {
-                parts.append("Spending's under control — \(money(bud - spent, s.currency)) left in the budget.")
-            }
-        }
-        if let frac = s.savingsFractionOfTarget {
-            let pctThere = Int((frac * 100).rounded())
-            if frac >= 0.9 { parts.append("Your savings are on track — about \(pctThere)% of your target.") }
-            else if frac >= 0.5 { parts.append("You're about \(pctThere)% of the way to your nest-egg target — keep adding.") }
-            else { parts.append("Savings are early — \(pctThere)% of your target; the gap is the thing to chip at.") }
-        }
-
-        // Discipline
-        if let df = s.disciplineRingFraction {
-            if df >= 1 { parts.append("Every habit's met today — discipline ring closed.") }
-            else if df > 0 { parts.append("Some habits done, some open — the discipline ring isn't closed yet.") }
-        }
-
+    /// A real, plain-language WHOLE-DAY answer built ONLY from the snapshot — no
+    /// model. This is the honest baseline: with nothing running, it still tells
+    /// you where you stand, using your actual numbers.
+    public static func localSummary(_ s: Snapshot) -> String {
+        let parts = standingPart(s) + bodyPart(s) + budgetPart(s) + savingsPart(s) + disciplinePart(s)
         if parts.isEmpty {
             return "There isn't enough logged yet to read your day. Log a mood, connect Health, or add a budget and I'll have something real to tell you."
         }
         return parts.joined(separator: " ")
+    }
+
+    /// A deterministic answer that actually ADDRESSES the question when the model
+    /// isn't available — so "am I over budget?" gets the budget line, not the
+    /// whole-day wall. Falls back to the full summary for open-ended asks.
+    public static func localAnswer(question: String, snapshot s: Snapshot) -> String {
+        let q = question.lowercased()
+        func has(_ words: [String]) -> Bool { words.contains { q.contains($0) } }
+
+        var picked: [String] = []
+        if has(["budget", "spend", "spent", "overspend"]) { picked += budgetPart(s) }
+        if has(["save", "saving", "savings", "nest", "retire", "target"]) { picked += savingsPart(s) }
+        if has(["portfolio", "stock", "holding", "invest", "market", "position"]) { picked += portfolioPart(s) }
+        if has(["move", "movement", "walk", "step", "exercise", "train", "workout", "body", "fitness"]) { picked += bodyPart(s) }
+        if has(["habit", "streak", "discipline", "consistent"]) { picked += disciplinePart(s) }
+
+        if !picked.isEmpty { return picked.joined(separator: " ") }
+        // No clear intent → the whole-day read.
+        return localSummary(s)
     }
 
     // MARK: - Full answer (model when available, honest fallback otherwise)
@@ -206,7 +233,8 @@ public enum AssistantService {
     ) async -> Answer {
         let brief = groundingContext(snapshot)
         guard let llm else {
-            return Answer(text: localSummary(snapshot), source: .localData, usedCloud: false)
+            // No model → a deterministic answer that ADDRESSES the question.
+            return Answer(text: localAnswer(question: question, snapshot: snapshot), source: .localData, usedCloud: false)
         }
         // Fold the recent conversation into the prompt so the model can resolve
         // "and that?" against what was just discussed. The data brief is always
@@ -229,12 +257,12 @@ public enum AssistantService {
             let reply = try await llm(systemPrompt, user)
             let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
-                return Answer(text: localSummary(snapshot), source: .localData, usedCloud: false)
+                return Answer(text: localAnswer(question: question, snapshot: snapshot), source: .localData, usedCloud: false)
             }
             return Answer(text: trimmed, source: .model, usedCloud: usedCloud)
         } catch {
             // A model that isn't running must NEVER break the feature.
-            return Answer(text: localSummary(snapshot), source: .localData, usedCloud: false)
+            return Answer(text: localAnswer(question: question, snapshot: snapshot), source: .localData, usedCloud: false)
         }
     }
 

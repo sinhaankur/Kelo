@@ -70,6 +70,54 @@ final class AssistantConversationTests: XCTestCase {
         XCTAssertFalse(receivedUser.contains("Our conversation so far"))
     }
 
+    // MARK: Deterministic answer addresses the QUESTION (no-model polish)
+
+    private func richSnapshot() -> AssistantService.Snapshot {
+        var s = AssistantService.Snapshot(currency: "USD")
+        s.dayStanding = "steady"
+        s.bodyRingFraction = 0.4
+        s.spentThisMonth = 1200; s.budgetedThisMonth = 1000
+        s.savingsFractionOfTarget = 0.3
+        s.portfolioValue = 52_000; s.portfolioDayChangePct = -0.8
+        s.topHoldings = ["AAPL +2.1%"]
+        return s
+    }
+
+    func testLocalAnswerBudgetQuestionIsFocused() {
+        let a = AssistantService.localAnswer(question: "am I over budget?", snapshot: richSnapshot())
+        XCTAssertTrue(a.contains("over budget"))
+        XCTAssertTrue(a.contains("$200"))
+        // Focused — it doesn't dump the portfolio when asked about budget.
+        XCTAssertFalse(a.contains("portfolio"))
+    }
+
+    func testLocalAnswerPortfolioQuestionIsFocused() {
+        let a = AssistantService.localAnswer(question: "how's my portfolio today?", snapshot: richSnapshot())
+        XCTAssertTrue(a.contains("$52,000"))
+        XCTAssertTrue(a.contains("AAPL +2.1%"))
+        XCTAssertFalse(a.contains("budget"))
+    }
+
+    func testLocalAnswerSavingsQuestion() {
+        let a = AssistantService.localAnswer(question: "are my savings on track?", snapshot: richSnapshot())
+        XCTAssertTrue(a.contains("30%") || a.lowercased().contains("target"))
+    }
+
+    func testLocalAnswerOpenEndedFallsBackToFullSummary() {
+        let a = AssistantService.localAnswer(question: "how am I doing?", snapshot: richSnapshot())
+        // Open-ended → the whole-day read (mentions multiple domains).
+        XCTAssertTrue(a.contains("steady"))
+        XCTAssertTrue(a.contains("budget"))
+    }
+
+    func testNoModelPathUsesFocusedAnswer() async {
+        let a = await AssistantService.answer(question: "am I over budget?",
+                                              snapshot: richSnapshot(), llm: nil)
+        XCTAssertEqual(a.source, .localData)
+        XCTAssertTrue(a.text.contains("over budget"))
+        XCTAssertFalse(a.text.contains("portfolio"))   // focused, not the full wall
+    }
+
     // MARK: Note store round-trip (on-device file)
 
     func testNoteStoreAddRemoveAndContextLines() {

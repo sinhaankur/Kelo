@@ -32,41 +32,22 @@ final class AskKeloCardModel: ObservableObject {
 
     func clear() { transcript = [] }
 
-    /// Snapshot from live app + on-device stores. The Mac has real quotes, so
-    /// the portfolio value + top movers are included (grounded, not invented).
+    /// Snapshot from live app + on-device stores, using the SAME shared
+    /// valuation the phone uses (PortfolioValuation) — one source of truth,
+    /// grounded, never invented. The Mac has real quotes so the portfolio +
+    /// top movers are included.
     private func snapshot(_ model: AppModel) -> AssistantService.Snapshot {
         let cur = model.config.displayCurrency ?? "USD"
-        let total = model.totalValue
-        // Top holdings by value, with today's move — real numbers only.
-        let top = model.portfolio.holdings
-            .sorted { model.holdingValue($0) > model.holdingValue($1) }
-            .prefix(4)
-            .map { h -> String in
-                let pct = model.quotes[h.symbol]?.dayChangePct
-                return pct.map { "\(h.symbol) \(String(format: "%+.1f%%", $0))" } ?? h.symbol
-            }
-        // Portfolio day change: value-weighted from the holdings we have quotes for.
-        let dayPct = portfolioDayChangePct(model)
-        let saved = total   // what they actually hold, for the savings benchmark
-
+        let q = model.quotes, fx = model.fxRates
+        let total = PortfolioValuation.totalValue(model.portfolio, quotes: q, fxRates: fx)
+        let has = total > 0
         return .fromStores(
             currency: cur,
-            portfolioValue: total > 0 ? total : nil,
-            portfolioDayChangePct: dayPct,
-            currentSaved: total > 0 ? saved : nil,
-            topHoldings: Array(top)
+            portfolioValue: has ? total : nil,
+            portfolioDayChangePct: PortfolioValuation.dayChangePct(model.portfolio, quotes: q, fxRates: fx),
+            currentSaved: has ? total : nil,   // what they actually hold, for the benchmark
+            topHoldings: has ? PortfolioValuation.topHoldings(model.portfolio, quotes: q, fxRates: fx) : []
         )
-    }
-
-    private func portfolioDayChangePct(_ model: AppModel) -> Double? {
-        var weighted = 0.0, base = 0.0
-        for h in model.portfolio.holdings {
-            guard let q = model.quotes[h.symbol] else { continue }
-            let val = model.holdingValue(h)
-            weighted += val * q.dayChangePct
-            base += val
-        }
-        return base > 0 ? weighted / base : nil
     }
 
     func ask(_ model: AppModel, _ q: String? = nil) {
