@@ -11,10 +11,11 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 
 ## Now
 
-- [ ] **Opt-in in-app AI assistant** — let an AI assistant connect to Kelo *if
-      the user allows* (explicit toggle). On-device Apple Foundation Models
-      preferred (private, offline); it reads Kelo's own data to answer "how am I
-      doing?" — never acts, never sends data out. Off by default.
+- [ ] **Assistant: settings toggle + Apple Foundation Models** — the assistant
+      ships (AssistantService + Ask Kelo on iOS/macOS, grounded + honest + 14
+      tests). Remaining: an explicit on/off toggle in settings (currently gated
+      by whether a model is reachable), and prefer on-device Apple Foundation
+      Models over Ollama where available.
 
 ## Next
 
@@ -39,6 +40,9 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 - [ ] **Extract KeloKit as the open-source engine** — the open Fitness+ north star.
 
 ## Done
+
+- [x] Opt-in assistant CORE + Ask Kelo UI (iOS Today tab + macOS card):
+      grounded in real data, honest source labels, works with zero AI, 14 tests.
 
 - [x] Rebrand Pulse → Kelo (end to end, incl. executable + logo).
 - [x] Day State composite (body + money verdict), 3 surfaces.
