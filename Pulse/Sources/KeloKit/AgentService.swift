@@ -51,6 +51,7 @@ public enum AgentService {
                                 today: String = isoDateString(Date()),
                                 maxOpen: Int = 6,
                                 notional: Double = 250,
+                                knowledge: [TickerKnowledge] = [],
                                 stateURL: URL = stateURL) -> Action? {
         var state = loadState(from: stateURL)
         guard state.lastActionDate != today else { return nil }
@@ -58,8 +59,21 @@ public enum AgentService {
         guard agentCalls.count < maxOpen else { return nil }
         let already = Set(openCalls.map(\.symbol))
 
-        let pick = ideas.longs.first { !already.contains($0.symbol) }
-            ?? ideas.shorts.first { !already.contains($0.symbol) }
+        // LEARNING: skip tickers the agent's own record says to AVOID (a proven
+        // loser so far), so the knowledge base actually steers future calls.
+        // "prefer" tickers (a proven winner) are tried first so the agent leans
+        // into what's worked; untested/neutral stay eligible.
+        func eligible(_ i: TradeIdea) -> Bool {
+            !already.contains(i.symbol)
+                && TickerKnowledgeBase.stance(for: i.symbol, in: knowledge) != .avoid
+        }
+        func preferred(_ i: TradeIdea) -> Bool {
+            TickerKnowledgeBase.stance(for: i.symbol, in: knowledge) == .prefer
+        }
+        let longs = ideas.longs.filter(eligible)
+        let shorts = ideas.shorts.filter(eligible)
+        let pick = longs.first(where: preferred) ?? shorts.first(where: preferred)
+            ?? longs.first ?? shorts.first
         guard let pick, let q = quotes[pick.symbol], q.price > 0 else { return nil }
 
         let fx = fxRates[q.currency] ?? 1

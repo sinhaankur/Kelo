@@ -94,11 +94,54 @@ struct AgentCard: View {
                     }
                 }
 
-                Text("the agent cannot know the future — nothing can. It makes disciplined, signal-based calls on paper and keeps this scorecard. Trust the record when it earns it, in months not days; it never touches real money. '→ Wealthsimple' copies a ready order ticket and opens the brokerage — the final click is always yours (Wealthsimple has no trading API, and that's the right design anyway).")
+                // What is what, and how — the agent's per-ticker knowledge base,
+                // learned only from its own resolved calls. It steers future
+                // picks: proven losers skipped, proven winners preferred.
+                let kb = TickerKnowledgeBase.build(reviews: model.paperReviews, whatIs: model.industryBySymbol)
+                if !kb.isEmpty {
+                    Divider().padding(.vertical, 2)
+                    Text("WHAT IT'S LEARNED — per ticker")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .tracking(1.5).foregroundStyle(.secondary)
+                    ForEach(kb) { k in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            StancePill(k.stance)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(k.symbol).font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                Text(k.summary).font(.system(size: 10.5)).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+
+                Text("the agent cannot know the future — nothing can. It makes disciplined, signal-based calls on paper and keeps this scorecard. It LEARNS per ticker from its own resolved calls — steering toward what's worked, away from what hasn't — but the record decides, never confidence. Trust it when it earns it, in months not days; it never touches real money. '→ Wealthsimple' copies a ready order ticket and opens the brokerage — the final click is always yours (Wealthsimple has no trading API, and that's the right design anyway).")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// A colour-coded pill for the agent's learned stance on a ticker.
+    private struct StancePill: View {
+        let stance: TickerKnowledge.Stance
+        init(_ s: TickerKnowledge.Stance) { stance = s }
+        var body: some View {
+            let (label, color): (String, Color) = {
+                switch stance {
+                case .prefer:  return ("PREFER", .green)
+                case .avoid:   return ("AVOID", .red)
+                case .neutral: return ("NEUTRAL", .secondary)
+                case .untested: return ("NEW", .orange)
+                }
+            }()
+            return Text(label)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(color.opacity(0.15), in: Capsule())
+                .foregroundStyle(color)
         }
     }
 

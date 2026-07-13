@@ -224,8 +224,11 @@ final class AppModel: ObservableObject {
         let ideas = ReviewService.ideas(holdings: portfolio.holdings, quotes: quotes,
                                         timelines: timelines, verdicts: verdicts,
                                         fxRates: fxRates)
+        // What the agent has learned so far — steers this cycle's pick.
+        let knowledge = TickerKnowledgeBase.build(reviews: paperReviews, whatIs: industryBySymbol)
         if let action = AgentService.runCycle(ideas: ideas, quotes: quotes,
-                                              fxRates: fxRates, openCalls: paperTrades) {
+                                              fxRates: fxRates, openCalls: paperTrades,
+                                              knowledge: knowledge) {
             PaperLedger.append(action.trade)
             paperTrades = PaperLedger.load()
             paperReviews = PaperLedger.review(paperTrades, quotes: quotes,
