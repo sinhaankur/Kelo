@@ -11,9 +11,9 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 
 ## Now
 
-- [ ] **Wire the portfolio into the phone assistant** — iOS Ask Kelo omits the
-      portfolio (no live quotes on the phone yet). Fetch quotes on iOS so the
-      phone assistant can ground in holdings like the Mac does.
+- [ ] **OpenAlice-style gated live trading** (wealth side, deliberate) — stage
+      → review → per-order approval before any real order (relaxed rule: never
+      executes without explicit approval). Bigger; flag scope before building.
 
 ## Next
 
@@ -39,6 +39,8 @@ stay green; `KELO_MACOS_APP=1` for macOS builds; `xcodegen generate` for iOS/wat
 
 ## Done
 
+- [x] Phone assistant grounds in the portfolio: shared PortfolioValuation +
+      iOS quote fetch (QuoteService), day-fraction wired; 6 tests.
 - [x] Assistant follow-up conversation (history-aware) + remembered user notes
       (on-device NoteStore, OpenAlice tracked-entities idea); transcript UI both OSes.
 - [x] Assistant opt-in toggle (off by default) + on-device Apple Foundation
