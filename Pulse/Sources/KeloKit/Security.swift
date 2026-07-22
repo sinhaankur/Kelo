@@ -13,9 +13,14 @@ public enum Security {
             Watchlist.fileURL,
             AgentService.stateURL,
         ]
-        for url in files where FileManager.default.fileExists(atPath: url.path) {
-            try? FileManager.default.setAttributes(
-                [.posixPermissions: 0o600], ofItemAtPath: url.path)
-        }
+        for url in files { hardenFile(at: url) }
+    }
+
+    /// Lock a single local file to owner-only (0600) — for stores that write
+    /// their own cache (e.g. the Congress feed) outside the fixed list above.
+    public static func hardenFile(at url: URL) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 }
