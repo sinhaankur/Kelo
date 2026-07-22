@@ -37,6 +37,9 @@ final class AppModel: ObservableObject {
     @Published var worldMarkets: WorldMarkets? = nil
     @Published var worldEvents: [WorldEvent] = []
     private var lastGdeltFetch: Date? = nil
+    @Published var congressTrades: [CongressTrade] = []
+    @Published var congressScores: [MemberScorecard] = []
+    private var lastCongressFetch: Date? = nil
 
     private var ollamaProcess: Process? = nil
     @Published var health = HealthStore.load()
@@ -297,6 +300,7 @@ final class AppModel: ObservableObject {
             }
         }
         refreshWorldEvents()
+        refreshCongress()
     }
 
     /// GDELT asks for ≤1 request / 5s — fetch conflict events at most every
@@ -307,6 +311,22 @@ final class AppModel: ObservableObject {
         Task {
             let events = await GdeltService.events()
             await MainActor.run { self.worldEvents = events }
+        }
+    }
+
+    /// Congress disclosures move a few times a day — fetch at most hourly, in
+    /// the background, and derive the per-member scorecards off-main. The feed
+    /// already carries post-disclosure performance, so no extra quote calls.
+    func refreshCongress() {
+        if let t = lastCongressFetch, Date().timeIntervalSince(t) < 3600 { return }
+        lastCongressFetch = Date()
+        Task {
+            let trades = await CongressService.recentTrades()
+            let scores = CongressService.memberScorecards(trades)
+            await MainActor.run {
+                self.congressTrades = trades
+                self.congressScores = scores
+            }
         }
     }
 
@@ -481,7 +501,7 @@ final class AppModel: ObservableObject {
 // Positions = per-holding depth; Analysis = all judgment (deterministic
 // flags first, local model second); Trade = drafting + paper scoring.
 enum AppSection: String, CaseIterable, Identifiable {
-    case overview, market, positions, analysis, trade, options, agent
+    case overview, market, positions, analysis, trade, options, congress, agent
     var id: String { rawValue }
 
     var title: String {
@@ -492,6 +512,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .analysis: return "Analysis"
         case .trade: return "Trade"
         case .options: return "Options"
+        case .congress: return "Congress"
         case .agent: return "Agent"
         }
     }
@@ -503,6 +524,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .analysis: return "text.magnifyingglass"
         case .trade: return "arrow.left.arrow.right"
         case .options: return "book"
+        case .congress: return "building.columns"
         case .agent: return "sparkles"
         }
     }
@@ -594,6 +616,9 @@ struct ContentView: View {
                         case .options:
                             OptionsLearnCard(model: model)
                             OptionsCalculatorCard(model: model)
+                        case .congress:
+                            CongressMapView(model: model)
+                            CongressCard(model: model)
                         case .agent:
                             AgentCard(model: model)
                             IdeasCard(model: model)
@@ -631,7 +656,7 @@ struct ContentView: View {
     private var footer: some View {
         let holdingSymbols = Set(model.portfolio.holdings.map(\.symbol))
         let quoted = holdingSymbols.filter { model.quotes[$0] != nil }.count
-        let domains = "query1.finance.yahoo.com · cdn.cboe.com · api.alternative.me · finnhub.io"
+        let domains = "query1.finance.yahoo.com · cdn.cboe.com · api.alternative.me · finnhub.io · raw.githubusercontent.com (congress disclosures)"
             + (model.config.usesAnthropicCloud ? " · api.anthropic.com (cloud LLM, opt-in)" : "")
         return HStack {
             Text("educational, not financial advice · data stays on-device · talks only to: \(domains)")

@@ -191,7 +191,7 @@ struct TacticalMapView: View {
 
 // A single marker on the tactical map.
 struct MapMarker: Identifiable {
-    enum Kind: String { case market, conflict, energy }
+    enum Kind: String { case market, conflict, energy, congress }
     let kind: Kind
     let lat: Double
     let lon: Double
@@ -221,7 +221,8 @@ struct MarkerDot: View {
 }
 
 /// The click-through briefing panel — the screenshot's detail card, native.
-private struct DetailPanel: View {
+/// Shared by the tactical map and the Congress map (both use MapMarker).
+struct DetailPanel: View {
     let marker: MapMarker
     let close: () -> Void
     var body: some View {
