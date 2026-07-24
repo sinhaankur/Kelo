@@ -327,6 +327,28 @@ final class AppModel: ObservableObject {
                 self.congressTrades = trades
                 self.congressScores = scores
             }
+            writeVaultFeeds(trades: trades)
+        }
+    }
+
+    /// Obsidian "memory & brain" writer: for the tickers the user actually
+    /// tracks (holdings + watchlist), write a `Kelo Feeds/<TICKER>.md` note
+    /// combining Congress disclosures + recent news. Opt-in — a no-op unless a
+    /// vault path is set. NEVER touches the user's own notes (VaultService only
+    /// ever writes into its own folder).
+    private func writeVaultFeeds(trades: [CongressTrade]) {
+        guard VaultService.isEnabled else { return }
+        let tracked = Set(portfolio.holdings.map(\.symbol) + watchlist)
+        guard !tracked.isEmpty else { return }
+        let news = holdingsNews
+        let cfg = config
+        Task.detached {
+            for ticker in tracked {
+                let md = VaultService.feedNoteMarkdown(
+                    ticker: ticker, trades: trades,
+                    headlines: news[ticker] ?? [])
+                VaultService.writeFeedNote(ticker: ticker, markdown: md, config: cfg)
+            }
         }
     }
 

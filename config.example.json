@@ -3,5 +3,6 @@
   "llmEndpoint": "http://localhost:11434",
   "llmModel": "qwen2.5:7b",
   "cashAvailable": 2500,
-  "_note": "Copy to config.json (gitignored). finnhubApiKey powers market headlines in the sentiment card; llm settings are used by pulse-tui --analyze; cashAvailable feeds the Trade Draft card's affordability math (Pulse drafts orders, never places them)."
+  "obsidianVaultPath": "~/Documents/MyVault",
+  "_note": "Copy to config.json (gitignored). finnhubApiKey powers market headlines in the sentiment card; llm settings are used by pulse-tui --analyze; cashAvailable feeds the Trade Draft card's affordability math (Pulse drafts orders, never places them). obsidianVaultPath is OPTIONAL: when set, Kelo shows your own <TICKER>.md notes read-only in the outlook, and writes Congress+news feeds only into that vault's 'Kelo Feeds/' folder (never editing your notes). Remove the line to keep the vault link off."
 }

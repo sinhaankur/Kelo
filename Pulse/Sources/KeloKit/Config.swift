@@ -22,12 +22,17 @@ public struct AppConfig: Codable {
     public var autoStartOllama: Bool?
     /// IBKR Client Portal Gateway address (paper-account execution rails).
     public var ibkrGateway: String?
+    /// Absolute path to an Obsidian vault (opt-in; off when unset). Kelo READS
+    /// the user's own per-ticker notes (`NVDA.md`) read-only, and WRITES its own
+    /// feeds only into the vault's `Kelo Feeds/` subfolder — never touching the
+    /// user's authored notes. `~` is expanded.
+    public var obsidianVaultPath: String?
 
     public init(finnhubApiKey: String? = nil, llmProvider: String? = nil,
                 llmEndpoint: String? = nil, llmModel: String? = nil,
                 anthropicApiKey: String? = nil, displayCurrency: String? = nil,
                 cashAvailable: Double? = nil, autoStartOllama: Bool? = nil,
-                ibkrGateway: String? = nil) {
+                ibkrGateway: String? = nil, obsidianVaultPath: String? = nil) {
         self.finnhubApiKey = finnhubApiKey
         self.llmProvider = llmProvider
         self.llmEndpoint = llmEndpoint
@@ -37,6 +42,7 @@ public struct AppConfig: Codable {
         self.cashAvailable = cashAvailable
         self.autoStartOllama = autoStartOllama
         self.ibkrGateway = ibkrGateway
+        self.obsidianVaultPath = obsidianVaultPath
     }
 
     public var usesAnthropicCloud: Bool {

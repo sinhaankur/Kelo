@@ -13,6 +13,9 @@ struct OutlookSheet: View {
     @State private var outlook: StockOutlook? = nil
     @State private var lifecycle: [QuoteService.HistoryPoint] = []
     @State private var loading = true
+    /// The user's own Obsidian note for this ticker, if the vault link is on
+    /// and a `<TICKER>.md` exists. Read-only — Kelo never edits it.
+    @State private var vaultNote: String? = nil
     @State private var llmOutput = ""
     @State private var llmStatus = ""
     @State private var llmRunning = false
@@ -38,6 +41,24 @@ struct OutlookSheet: View {
                 }
                 .buttonStyle(.plain).foregroundStyle(.tertiary)
                 .keyboardShortcut(.cancelAction)
+            }
+
+            // The user's own note from Obsidian, when the vault link is on and
+            // a note exists. Kelo reads it, never edits it.
+            if let note = vaultNote, !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("YOUR NOTE — from your Obsidian vault (read-only)")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .tracking(1).foregroundStyle(.tertiary)
+                    ScrollView {
+                        Text(note).font(.system(size: 11)).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 120)
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.keloAccent.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.keloAccent.opacity(0.2)))
+                }
             }
 
             if loading {
@@ -222,6 +243,8 @@ struct OutlookSheet: View {
         .padding(16)
         .frame(width: 720, height: 580)
         .task {
+            // Local, instant: the user's own vault note (read-only).
+            vaultNote = VaultService.userNote(ticker: symbol, config: model.config)
             async let outlookTask = OutlookService.fetch(symbol: symbol,
                                                          finnhubKey: model.config.finnhubApiKey)
             async let lifeTask = QuoteService.fetchHistory(symbol: symbol, range: "max")
